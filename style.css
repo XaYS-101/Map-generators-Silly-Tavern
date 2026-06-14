@@ -1,0 +1,117 @@
+/* Map Generators — styles */
+
+.map-generators-settings .mg-hint {
+    display: block;
+    opacity: 0.75;
+    font-size: 0.85em;
+    margin: 8px 0;
+    line-height: 1.4;
+}
+
+/* Generic rows */
+.mg-row { display: flex; gap: 6px; align-items: center; }
+.mg-row.mg-wrap { flex-wrap: wrap; }
+
+/* ---- generator popup (live iframe) ---- */
+.mg-genpopup { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.mg-genpopup .mg-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mg-genpopup .mg-seed { width: 9em; }
+.mg-genpopup .mg-frame {
+    width: 80vw;
+    max-width: 100%;
+    height: 72vh;
+    border: 0;
+    border-radius: 6px;
+    background: #000;
+}
+.mg-genpopup .mg-paste { flex: 1; min-width: 12em; }
+
+/* ---- map editor ---- */
+.mg-editor { display: flex; flex-direction: column; gap: 10px; text-align: left; width: min(680px, 88vw); }
+.mg-editor .mg-field { display: flex; flex-direction: column; gap: 3px; }
+.mg-editor .mg-field > label { font-weight: 600; opacity: 0.85; }
+.mg-editor .mg-static { padding: 4px 0; opacity: 0.9; }
+.mg-editor .mg-desc { width: 100%; resize: vertical; }
+.mg-editor h4 { margin: 6px 0 0; }
+.mg-radio { display: inline-flex; align-items: center; gap: 4px; }
+.mg-depthwrap { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+
+/* ---- library ---- */
+.mg-library { display: flex; flex-direction: column; gap: 8px; text-align: left; width: min(620px, 88vw); }
+.mg-library .mg-empty { opacity: 0.7; text-align: center; padding: 12px; }
+.mg-card {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 8px; border: 1px solid var(--SmartThemeBorderColor, #444);
+    border-radius: 8px;
+}
+.mg-card-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mg-thumb {
+    width: 52px; height: 52px; object-fit: cover; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center; font-size: 26px;
+    background: rgba(127,127,127,0.15); flex: 0 0 auto;
+}
+.mg-card-text { min-width: 0; }
+.mg-card-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mg-card-sub { opacity: 0.7; font-size: 0.85em; }
+.mg-card-actions { display: flex; gap: 4px; flex: 0 0 auto; }
+.mg-card-actions .menu_button { min-width: 40px; }
+.mg-new { align-self: center; margin-top: 4px; }
+.mg-badge { font-size: 0.85em; }
+
+/* ---- generator picker ---- */
+.mg-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.mg-pick-btn { width: 100%; }
+
+/* ---- itch launch card ---- */
+.mg-itchcard { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; padding: 8px; }
+.mg-itchcard p { margin: 0; opacity: 0.85; }
+
+/* ---- docked floating viewers (map beside chat) ---- */
+.mg-panel {
+    position: fixed;
+    width: 380px; height: 60vh;
+    min-width: 240px; min-height: 200px;
+    display: flex; flex-direction: column;
+    padding: 6px; gap: 6px;
+    background: var(--SmartThemeBlurTintColor, rgba(20,20,20,0.9));
+    border: 1px solid var(--SmartThemeBorderColor, #444);
+    border-radius: 10px;
+    z-index: 3000;
+    overflow: hidden;
+    resize: both;
+}
+/* Default positions (first run only; ST persists moves per-id). */
+#mapGenPanel { top: 60px; right: 10px; }
+#mapGenPanel2 { top: 110px; right: 60px; }
+.mg-panel > .drag-grabber {
+    cursor: move; text-align: center; opacity: 0.7;
+    padding: 6px; min-height: 22px; font-size: 16px;
+    touch-action: none;           /* allow touch-drag without page scroll */
+    border-radius: 6px;
+    background: rgba(127,127,127,0.12);
+}
+.mg-panel > .drag-grabber:active { opacity: 1; background: rgba(127,127,127,0.25); }
+/* maximized state — fills most of the viewport (handy on phones) */
+.mg-panel.mg-maximized {
+    left: 2vw !important; top: 2vh !important; right: auto !important;
+    width: 96vw !important; height: 92vh !important;
+}
+.mg-panel .mg-panel-bar { display: flex; gap: 4px; align-items: center; }
+.mg-panel .mg-panel-bar select { flex: 1; min-width: 0; }
+.mg-panel .mg-panel-bar .menu_button { min-width: 32px; padding: 4px 6px; }
+.mg-panel .mg-panel-body { flex: 1; min-height: 0; border-radius: 6px; overflow: hidden; background: #000; }
+.mg-panel .mg-panel-body .mg-frame { width: 100%; height: 100%; border: 0; }
+.mg-panel .mg-panel-body .mg-empty { color: #aaa; text-align: center; padding: 16px; }
+.mg-panel .mg-panel-actions { display: flex; gap: 4px; justify-content: space-between; }
+.mg-panel .mg-panel-actions .menu_button { flex: 1; min-width: 36px; }
+
+@media (max-width: 600px) {
+    .mg-panel { width: 92vw; height: 55vh; right: 4vw; }
+}
+
+/* ---- mobile ---- */
+@media (max-width: 600px) {
+    .mg-genpopup .mg-frame { width: 92vw; height: 64vh; }
+    .mg-card-actions .menu_button { min-width: 44px; min-height: 44px; }
+    .mg-depthwrap { margin-left: 0; }
+}

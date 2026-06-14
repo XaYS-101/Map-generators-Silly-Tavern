@@ -1,0 +1,12 @@
+{
+    "display_name": "Map Generators",
+    "loading_order": 70,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Map Generators Contributors",
+    "version": "1.0.0",
+    "homePage": "https://github.com/XaYS-101/Map-generators-Silly-Tavern",
+    "auto_update": true
+}
