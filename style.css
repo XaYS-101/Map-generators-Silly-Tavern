@@ -27,7 +27,10 @@
 .mg-genpopup .mg-paste { flex: 1; min-width: 12em; }
 
 /* ---- map editor ---- */
-.mg-editor { display: flex; flex-direction: column; gap: 10px; text-align: left; width: min(680px, 88vw); }
+/* Popup content must always be width:100% of ST's .popup-content —
+   the dialog's own flags (wide/wider/large) decide the real size, and
+   .popup-content clips overflow. Never use viewport widths on content. */
+.mg-editor { display: flex; flex-direction: column; gap: 10px; text-align: left; width: 100%; max-width: 720px; margin: 0 auto; }
 .mg-editor .mg-field { display: flex; flex-direction: column; gap: 3px; }
 .mg-editor .mg-field > label { font-weight: 600; opacity: 0.85; }
 .mg-editor .mg-static { padding: 4px 0; opacity: 0.9; }
@@ -37,7 +40,7 @@
 .mg-depthwrap { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
 
 /* ---- library ---- */
-.mg-library { display: flex; flex-direction: column; gap: 8px; text-align: left; width: min(620px, 88vw); }
+.mg-library { display: flex; flex-direction: column; gap: 8px; text-align: left; width: 100%; max-width: 640px; margin: 0 auto; }
 .mg-library .mg-empty { opacity: 0.7; text-align: center; padding: 12px; }
 .mg-card {
     display: flex; align-items: center; justify-content: space-between;
@@ -67,21 +70,27 @@
     margin: 4px 0 0; font-size: 0.9em;
 }
 
-/* ---- local procedural generators ---- */
-.mg-genpopup.mg-local { width: min(1000px, 90vw); }
+/* ---- local procedural generators ----
+   The local popup is opened with wide+large+wider, so the dialog is
+   already ~90dvh tall and at least 750px/50vw wide. The content fills
+   it (width/height 100%) and the preview flex-grows into the leftover
+   height — no viewport-based widths on content, ever. */
+.mg-genpopup.mg-local { height: 100%; min-height: 0; }
 .mg-genpopup.mg-local .mg-bar { row-gap: 8px; }
 .mg-genpopup .mg-ctl {
     display: inline-flex; align-items: center; gap: 6px;
-    min-width: 0; white-space: nowrap;
+    min-width: 0;
 }
 .mg-genpopup .mg-ctl > span { opacity: 0.85; }
 .mg-genpopup .mg-ctl select.mg-param { min-width: 6.5em; }
 .mg-genpopup input[type="range"].mg-param { width: 8em; }
-.mg-genpopup .mg-seedwrap { flex: 1 1 14em; }
-.mg-genpopup .mg-seedwrap .mg-seed { flex: 1; min-width: 0; width: auto; }
+.mg-genpopup .mg-seedwrap { flex: 0 1 auto; }
+.mg-genpopup .mg-seedwrap .mg-seed { width: 9em; flex: 0 1 9em; min-width: 6em; }
 .mg-local-preview {
+    flex: 1 1 auto;
+    min-height: 0;
     width: 100%;
-    max-height: 62vh;
+    max-height: 78dvh;   /* safety net if height:100% does not resolve */
     object-fit: contain;
     border-radius: 6px;
     background: #e8dcc0;
@@ -91,29 +100,32 @@
     object-fit: contain;
     background: #e8dcc0;
 }
-.mg-lightbox { width: min(1100px, 92vw); }
+.mg-lightbox { width: 100%; height: 100%; min-height: 0; display: flex; }
 .mg-lightbox img {
-    width: 100%; max-height: 82vh;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    max-height: 80dvh;
     object-fit: contain;
     border-radius: 6px; background: #e8dcc0;
 }
 .mg-editor .mg-seedinfo { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* editor action buttons: wrap cleanly instead of overflowing the dialog */
-.mg-editor .mg-row.mg-wrap .menu_button { flex: 0 1 auto; white-space: normal; }
+/* .menu_button defaults to width:min-content in ST — without nowrap,
+   long labels fold into a vertical letter-column. Rows wrap instead. */
+.mg-editor .mg-row.mg-wrap .menu_button { flex: 0 1 auto; white-space: nowrap; }
 
 @media (max-width: 600px) {
-    .mg-genpopup.mg-local { width: 94vw; }
     /* each control gets its own full-width row: label left, input right */
     .mg-genpopup .mg-ctl { flex: 1 1 100%; justify-content: space-between; }
-    .mg-genpopup .mg-ctl select.mg-param,
-    .mg-genpopup input[type="range"].mg-param { flex: 1; max-width: 60%; min-height: 40px; }
-    .mg-genpopup input[type="range"].mg-param { min-height: 28px; }
+    .mg-genpopup .mg-seedwrap { flex: 1 1 100%; }
+    .mg-genpopup .mg-seedwrap .mg-seed { flex: 1; width: auto; }
+    .mg-genpopup .mg-ctl select.mg-param { flex: 1; max-width: 60%; min-height: 40px; }
+    .mg-genpopup input[type="range"].mg-param { flex: 1; max-width: 60%; min-height: 28px; }
     .mg-genpopup .mg-ctl input[type="checkbox"].mg-param { width: 24px; height: 24px; }
-    .mg-local-preview { max-height: 48vh; }
-    /* editor: big tap targets, two buttons per row */
-    .mg-editor { width: 94vw; }
-    .mg-editor .mg-row.mg-wrap .menu_button { flex: 1 1 45%; min-height: 40px; }
-    .mg-library { width: 94vw; }
+    .mg-local-preview { max-height: 55dvh; }
+    /* the dialog itself is already capped at 100dvw - 2em */
+    .mg-editor, .mg-library { max-width: none; }
+    .mg-editor .mg-row.mg-wrap .menu_button { flex: 1 1 45%; min-height: 40px; white-space: normal; }
     .mg-pick-btn { min-height: 44px; }
 }
 
