@@ -16,7 +16,7 @@ https://github.com/XaYS-101/Map-generators-Silly-Tavern
 
 ## Features
 
-- **Built-in local generators (new in 1.1)** — four fully offline procedural
+- **Built-in local generators (since 1.1)** — four fully offline procedural
   generators written for this extension (no iframe, no internet):
   **Dungeon** (BSP rooms & corridors, or cellular-automata caves),
   **Region / World** (noise heightmap → biomes, rivers, settlements, roads),
@@ -30,20 +30,27 @@ https://github.com/XaYS-101/Map-generators-Silly-Tavern
   - a **structured JSON model** (rooms, connections, biomes, landmarks) —
     downloadable from the editor;
   - an **auto-generated text description** for the AI (compass directions,
-    room-by-room exits, plus an ASCII minimap for dungeons/interiors) that
-    plugs straight into the lorebook/injection memory below. Rerolling a map
-    updates the description automatically unless you've edited it by hand.
-  Only the seed, options and a small thumbnail are stored in chat metadata —
-  the full map is regenerated on demand.
+    room-by-room exits and features) that plugs straight into the
+    lorebook/injection memory below. Rerolling a map updates the description
+    automatically unless you've edited it by hand.
+  Dungeon **themes shape the layout**, not just the names: crypts are warrens
+  of small chambers, strongholds have large connected halls, sewers get long
+  flooded galleries, ruins get collapsed walls and rubble. Interiors have
+  realistic circulation — a hallway behind the tavern common room, a central
+  corridor in manors/keeps — so you never walk through the kitchen to reach a
+  guest room. Only the seed, options and a small thumbnail are stored in chat
+  metadata; the full map is regenerated on demand.
 - **Floating viewer beside the chat** — a draggable, resizable window (touch &
-  mouse) that keeps a live generator next to the chat so you see both at once.
-  Open it from the wand menu (🗺️); optionally enable a **second independent
-  viewer** to show, say, a city map and a sigil side by side. There's also a
-  full-screen **library/editor** (`/map`).
-- **Generators** — Medieval Fantasy City, Village, One Page Dungeon, Perilous
-  Shores, Dwellings (live in the panel via `?seed=`), plus Taverns, Urban Places,
-  Icons, Tiny Pubs, Constellations, the Watabou Sigil Generator and Histomap
-  (itch.io tools — open in a new tab).
+  mouse; drag it by its toolbar or the grip strip) that keeps a map next to
+  the chat so you see both at once. Open it from the wand menu (🗺️);
+  optionally enable a **second independent viewer** to show, say, a city map
+  and a dungeon side by side (closing it with ✕ turns the setting off again).
+  There's also a full-screen **library/editor** (`/map`).
+- **Online generators** — Medieval Fantasy City, Village, One Page Dungeon,
+  Perilous Shores, Dwellings (live in the panel via `?seed=`), plus Taverns,
+  Urban Places, Icons, Tiny Pubs, Constellations, the Watabou Sigil Generator
+  and Histomap (itch.io tools — open in a new tab). You can also add any
+  generator by URL via the **Custom URL…** tile in the picker.
 - **Save & restore** — a map's full state is its URL (`?seed=…&tags=…`), stored
   in the chat's metadata, so it survives reloads. Keep as many maps as you like,
   including several from the same generator.
@@ -66,15 +73,27 @@ https://github.com/XaYS-101/Map-generators-Silly-Tavern
 
 1. Open the library: the **`/map`** slash command, or the **Open Map Library**
    button in `Extensions → Map Generators`.
-2. **+ New map** → pick a generator → tweak seed/size/tags in the popup → **Save
-   this map**.
-3. In the editor, write/import/caption a **description**, then pick an **AI
-   memory** mode. That's what the model reads.
+2. **+ New map** → pick a generator (local ones are grouped first) → tweak
+   seed/options in the popup with a live preview → **Save this map**.
+3. In the editor, the description is pre-filled for local maps (or
+   write/import/caption one), then pick an **AI memory** mode. That's what the
+   model reads.
+4. To reroll a saved local map, open it in the editor → **Open generator** —
+   the description, preview and lorebook entry stay in sync.
 
-> Cross-origin note: the extension can't read state back out of the generator
-> iframe, so its own seed/size/tags controls drive the map. If you used the
-> generator's own buttons, paste the resulting URL into the *"…or paste a map
-> URL"* field.
+> Cross-origin note (online generators only): the extension can't read state
+> back out of the generator iframe, so its own seed/size/tags controls drive
+> the map. If you used the generator's own buttons, paste the resulting URL
+> into the *"…or paste a map URL"* field.
+
+## Project layout
+
+```
+index.js     entry point (bootstrap)
+core/        settings, i18n, per-chat store, AI memory, files, vision, registry
+ui/          popups, map editor, library, floating panels, settings drawer
+procgen/     local generators: RNG, algorithms, canvas renderer, describer
+```
 
 ## Attribution & licensing
 
