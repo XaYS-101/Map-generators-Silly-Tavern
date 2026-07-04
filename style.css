@@ -68,14 +68,20 @@
 }
 
 /* ---- local procedural generators ---- */
+.mg-genpopup.mg-local { width: min(1000px, 90vw); }
 .mg-genpopup.mg-local .mg-bar { row-gap: 8px; }
-.mg-genpopup .mg-ctl { display: inline-flex; align-items: center; gap: 5px; }
+.mg-genpopup .mg-ctl {
+    display: inline-flex; align-items: center; gap: 6px;
+    min-width: 0; white-space: nowrap;
+}
 .mg-genpopup .mg-ctl > span { opacity: 0.85; }
-.mg-genpopup .mg-ctl select.mg-param { min-width: 6em; }
+.mg-genpopup .mg-ctl select.mg-param { min-width: 6.5em; }
 .mg-genpopup input[type="range"].mg-param { width: 8em; }
+.mg-genpopup .mg-seedwrap { flex: 1 1 14em; }
+.mg-genpopup .mg-seedwrap .mg-seed { flex: 1; min-width: 0; width: auto; }
 .mg-local-preview {
     width: 100%;
-    max-height: 70vh;
+    max-height: 62vh;
     object-fit: contain;
     border-radius: 6px;
     background: #e8dcc0;
@@ -85,14 +91,30 @@
     object-fit: contain;
     background: #e8dcc0;
 }
-.mg-lightbox { max-width: 92vw; }
-.mg-lightbox img { width: 100%; height: auto; border-radius: 6px; background: #e8dcc0; }
+.mg-lightbox { width: min(1100px, 92vw); }
+.mg-lightbox img {
+    width: 100%; max-height: 82vh;
+    object-fit: contain;
+    border-radius: 6px; background: #e8dcc0;
+}
 .mg-editor .mg-seedinfo { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* editor action buttons: wrap cleanly instead of overflowing the dialog */
+.mg-editor .mg-row.mg-wrap .menu_button { flex: 0 1 auto; white-space: normal; }
 
 @media (max-width: 600px) {
+    .mg-genpopup.mg-local { width: 94vw; }
+    /* each control gets its own full-width row: label left, input right */
+    .mg-genpopup .mg-ctl { flex: 1 1 100%; justify-content: space-between; }
     .mg-genpopup .mg-ctl select.mg-param,
-    .mg-genpopup .mg-param { min-height: 40px; }
-    .mg-genpopup input[type="range"].mg-param { min-height: 24px; }
+    .mg-genpopup input[type="range"].mg-param { flex: 1; max-width: 60%; min-height: 40px; }
+    .mg-genpopup input[type="range"].mg-param { min-height: 28px; }
+    .mg-genpopup .mg-ctl input[type="checkbox"].mg-param { width: 24px; height: 24px; }
+    .mg-local-preview { max-height: 48vh; }
+    /* editor: big tap targets, two buttons per row */
+    .mg-editor { width: 94vw; }
+    .mg-editor .mg-row.mg-wrap .menu_button { flex: 1 1 45%; min-height: 40px; }
+    .mg-library { width: 94vw; }
+    .mg-pick-btn { min-height: 44px; }
 }
 
 /* ---- itch launch card ---- */

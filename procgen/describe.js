@@ -111,7 +111,7 @@ function gridAscii(model) {
             if (row[cx] === '<' || row[cx] === '>') cx += (row[cx + 1] && row[cx + 1] !== '#') ? 1 : -1;
             if (row[cx] && row[cx] !== '#') row[cx] = label;
         });
-        legend = `legend: # wall, . floor, + door, < entrance, > exit; room ids 1-9 then A=10, B=11…${wide ? ' (map compressed 2:1 horizontally)' : ''}`;
+        legend = `legend: # wall, . floor, ~ water, + door, < entrance, > exit; room ids 1-9 then A=10, B=11…${wide ? ' (map compressed 2:1 horizontally)' : ''}`;
     }
     return rows.map(r => r.join('')).join('\n') + '\n' + legend;
 }

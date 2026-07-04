@@ -13,7 +13,7 @@ import { generateInterior } from './gen-interior.js';
 import { renderMap } from './render.js';
 import { describe, compactJson } from './describe.js';
 
-const GEN_VERSION = 1;
+const GEN_VERSION = 2;
 
 const TYPE_BY_KEY = { ldungeon: 'dungeon', lregion: 'region', ltown: 'town', linterior: 'interior' };
 const GEN_BY_TYPE = { dungeon: generateDungeon, region: generateRegion, town: generateTown, interior: generateInterior };
@@ -81,12 +81,12 @@ export function mapName(map) {
     return buildModel(map)?.name || '';
 }
 
-/** The LLM-facing description: prose + fenced ASCII minimap (if any). */
+/** The LLM-facing description. Prose only — the ASCII minimap reads as
+ *  noise to most models (and users), so it is not included. */
 export function describeMap(map) {
     const model = buildModel(map);
     if (!model) return '';
-    const d = describe(model);
-    return d.ascii ? `${d.prose}\n\n\`\`\`\n${d.ascii}\n\`\`\`` : d.prose;
+    return describe(model).prose;
 }
 
 /** Compact machine-readable JSON (no bulky layers). */

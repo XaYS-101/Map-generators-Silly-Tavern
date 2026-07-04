@@ -13,25 +13,47 @@ const idNum = id => Number(String(id).replace(/^\D+/, ''));
  *  Dungeon: floor tiles + traced wall runs + outside crosshatch,
  *  classic one-page-dungeon look.
  * ------------------------------------------------------------------ */
+const DUNGEON_FLOOR = {
+    crypt: '#ece2c8', ruins: '#e9e3c9', stronghold: '#eadfc2',
+    sewer: '#e2e4c4', caves: '#e6dcc3',
+};
+
 export function drawDungeon(ctx, model, rng, h, view) {
     const { s, ox, oy } = view;
     const px = (x, y) => [ox + x * s, oy + y * s];
     const rows = rleDecode(model.layers.grid);
     const W = rows[0].length, H = rows.length;
     const at = (x, y) => (rows[y]?.[x]) ?? '#';
-    const isFloor = c => c === '.' || c === '+' || c === '<' || c === '>';
+    const isFloor = c => c === '.' || c === '+' || c === '<' || c === '>' || c === '~';
     const wallAt = (x, y) => !isFloor(at(x, y));
+    const floorColor = DUNGEON_FLOOR[model.params.theme] || DUNGEON_FLOOR.crypt;
 
     // floor fill with subtle tile variation
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
         if (!isFloor(at(x, y))) continue;
-        ctx.fillStyle = '#ece2c8';
+        ctx.fillStyle = floorColor;
         ctx.fillRect(ox + x * s, oy + y * s, s, s);
         if (rng.chance(0.07)) {
             ctx.fillStyle = 'rgba(120,95,55,0.07)';
             ctx.fillRect(ox + x * s + 1, oy + y * s + 1, s - 2, s - 2);
         }
     }
+
+    // water tiles (sewer basins): tinted fill + faint wave strokes
+    ctx.fillStyle = '#b9cbc6';
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        if (at(x, y) === '~') ctx.fillRect(ox + x * s, oy + y * s, s, s);
+    }
+    ctx.strokeStyle = 'rgba(70,100,110,0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        if (at(x, y) !== '~' || !rng.chance(0.4)) continue;
+        const wy = oy + y * s + s * rng.float(0.3, 0.7);
+        ctx.moveTo(ox + x * s + s * 0.15, wy);
+        ctx.lineTo(ox + x * s + s * 0.55, wy);
+    }
+    ctx.stroke();
 
     // crosshatch band on wall cells that touch floor
     ctx.strokeStyle = 'rgba(58,44,26,0.3)';

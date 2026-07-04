@@ -7,12 +7,26 @@
  *  detected as sampled open pockets.
  *
  *  Tile codes: '#' wall  '.' floor  '+' door  '<' entrance  '>' exit
+ *              '~' water (sewer channels / flooded basins)
  * ------------------------------------------------------------------ */
 import { Rng } from './rng.js';
 import { makeEnvelope, compass, rleEncode } from './schema.js';
 import { nameFor, DUNGEON_ROOMS, featureFor } from './names.js';
 
 const SIZES = { s: [40, 28], m: [60, 40], l: [80, 56] };
+
+/* Themes shape the LAYOUT, not just the room names:
+ *   crypt      — many small chambers, few loops
+ *   ruins      — mid-sized rooms, collapsed (eroded) walls, rubble pillars
+ *   stronghold — large regular halls, well-connected (extra loops)
+ *   sewer      — long low galleries, flooded basins, extra loops
+ *   caves      — cellular automata (handled separately)                */
+const THEME_TUNING = {
+    crypt: { roomW: [4, 8], roomH: [3, 5], loopBonus: 0, erode: 0, pools: 0 },
+    ruins: { roomW: [4, 11], roomH: [3, 7], loopBonus: 1, erode: 0.2, pools: 0 },
+    stronghold: { roomW: [6, 14], roomH: [4, 9], loopBonus: 2, erode: 0, pools: 0 },
+    sewer: { roomW: [5, 14], roomH: [3, 4], loopBonus: 2, erode: 0, pools: 0.55 },
+};
 
 function titleCase(s) {
     return s.replace(/(^|[\s-])\w/g, c => c.toUpperCase());
@@ -24,9 +38,10 @@ export function generateDungeon(seed, params = {}) {
     const model = makeEnvelope('dungeon', seed, p);
     model.size = { w: W, h: H, unit: 'tile' };
 
-    // Layout stream folds in every layout-affecting param, so cosmetic
+    // Layout stream folds in every layout-affecting param (including the
+    // theme — each theme carves a genuinely different map), so cosmetic
     // changes (name regen etc.) never move the rooms.
-    const layoutRng = new Rng(`${seed}/layout:${p.size}:${p.theme === 'caves' ? 'ca' : 'bsp'}:${p.density}`);
+    const layoutRng = new Rng(`${seed}/layout:${p.size}:${p.theme}:${p.density}`);
     const grid = Array.from({ length: H }, () => Array(W).fill('#'));
 
     const built = (p.theme === 'caves')
@@ -67,6 +82,46 @@ export function generateDungeon(seed, params = {}) {
     grid[rooms[entranceI].cy][rooms[entranceI].cx] = '<';
     if (exitI !== entranceI) grid[rooms[exitI].cy][rooms[exitI].cx] = '>';
 
+    /* ---- theme flavor passes (never touch doors/marks) ---- */
+    const tuning = THEME_TUNING[p.theme];
+    const flavorRng = layoutRng.sub('flavor');
+    if (tuning?.erode) {
+        // ruins: crumble walls that already border open floor
+        const isOpen = c => c === '.' || c === '+' || c === '<' || c === '>';
+        const snapshot = grid.map(row => [...row]);
+        for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) {
+            if (snapshot[y][x] !== '#') continue;
+            let open = 0;
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                if (isOpen(snapshot[y + dy][x + dx])) open++;
+            }
+            if (open >= 2 && flavorRng.chance(tuning.erode)) grid[y][x] = '.';
+        }
+        // rubble pillars inside the larger rooms
+        for (const r of rooms) {
+            if (r.w < 6 || r.h < 5 || !flavorRng.chance(0.5)) continue;
+            const n = flavorRng.int(1, 2);
+            for (let k = 0; k < n; k++) {
+                const px = flavorRng.int(r.x + 1, r.x + r.w - 2);
+                const py = flavorRng.int(r.y + 1, r.y + r.h - 2);
+                if (grid[py][px] === '.') grid[py][px] = '#';
+            }
+        }
+    }
+    if (tuning?.pools) {
+        // sewer: flooded basins filling room interiors, 1-tile walkway around
+        for (const r of rooms) {
+            if (r.i === entranceI || r.i === exitI) continue;
+            if (r.w < 5 || r.h < 3 || !flavorRng.chance(tuning.pools)) continue;
+            for (let y = r.y + 1; y < r.y + r.h - 1; y++) {
+                for (let x = r.x + 1; x < r.x + r.w - 1; x++) {
+                    if (grid[y][x] === '.') grid[y][x] = '~';
+                }
+            }
+            r.flooded = true;
+        }
+    }
+
     /* ---- secret room: one dead end becomes a hidden vault ---- */
     const deg = adj.map(a => a.length);
     const deco = new Rng(`${seed}/deco:${p.theme}`);
@@ -96,6 +151,7 @@ export function generateDungeon(seed, params = {}) {
         const n = deco.int(1, 2);
         for (let k = 0; k < n; k++) feats.add(featureFor(deco, r.purpose));
         r.notes = [...feats].join('; ');
+        if (r.flooded) r.notes += (r.notes ? '; ' : '') + 'flooded with murky waist-deep water';
     }
     if (exitI !== entranceI) {
         rooms[exitI].notes += (rooms[exitI].notes ? '; ' : '') + 'a stair leads down into darkness';
@@ -157,11 +213,12 @@ function carveBsp(grid, W, H, rng, p) {
     const leaves = [];
     (function collect(n) { if (n.a) { collect(n.a); collect(n.b); } else leaves.push(n); })(tree);
 
+    const tune = THEME_TUNING[p.theme] || THEME_TUNING.crypt;
     for (const leaf of leaves) {
         // Low density leaves some leaves empty (but keep a playable minimum).
         if (rooms.length >= 6 && rng.chance(0.3 - p.density * 0.25)) continue;
-        const rw = rng.int(4, Math.max(4, Math.min(leaf.w - 2, 14)));
-        const rh = rng.int(3, Math.max(3, Math.min(leaf.h - 2, 9)));
+        const rw = rng.int(Math.min(tune.roomW[0], leaf.w - 2), Math.max(4, Math.min(leaf.w - 2, tune.roomW[1])));
+        const rh = rng.int(Math.min(tune.roomH[0], leaf.h - 2), Math.max(3, Math.min(leaf.h - 2, tune.roomH[1])));
         const rx = leaf.x + rng.int(1, Math.max(1, leaf.w - rw - 1));
         const ry = leaf.y + rng.int(1, Math.max(1, leaf.h - rh - 1));
         const room = { i: rooms.length, x: rx, y: ry, w: rw, h: rh, cx: rx + (rw >> 1), cy: ry + (rh >> 1) };
@@ -214,7 +271,7 @@ function carveBsp(grid, W, H, rng, p) {
     connect(tree);
 
     // Extra loops: make the graph non-tree, more interesting to narrate.
-    const loopTries = rng.int(1, 3) + Math.round(p.density * 2);
+    const loopTries = rng.int(1, 3) + Math.round(p.density * 2) + (tune.loopBonus || 0);
     for (let i = 0; i < loopTries && rooms.length > 3; i++) {
         const A = rng.pick(rooms), B = rng.pick(rooms);
         if (A === B) continue;

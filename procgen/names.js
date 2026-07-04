@@ -120,6 +120,7 @@ export const FURNITURE = {
     'study': ['a cluttered writing desk', 'maps pinned to the wall'],
     'workshop': ['a sturdy workbench with tools', 'half-finished wares'],
     'shopfront': ['a display counter', 'shelves of goods', 'a hanging scale'],
+    'hallway': ['a row of coat hooks', 'a threadbare runner rug', 'an oil lamp on a wall bracket'],
     'hearth room': ['a broad hearth with a cook-pot', 'a spinning wheel', 'a heavy family table'],
     default: ['a sturdy table', 'a battered chest', 'shelves along the wall', 'a woven rug', 'an old cabinet'],
 };

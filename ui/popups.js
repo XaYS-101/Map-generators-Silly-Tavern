@@ -23,7 +23,7 @@ async function openLocalGeneratorPopup(generatorKey, existingMap = null) {
     const $bar = $('<div class="mg-bar"></div>');
     const $seed = $('<input type="text" class="text_pole mg-seed" />').val(String(seed));
     const $rand = $(`<button class="menu_button" title="${t('gen_random')}">🎲</button>`);
-    $bar.append($(`<span>${t('gen_seed')}</span>`), $seed, $rand);
+    $bar.append($('<span class="mg-ctl mg-seedwrap"></span>').append($(`<span>${t('gen_seed')}</span>`), $seed, $rand));
 
     const controls = [];
     for (const f of def.paramSchema || []) {
