@@ -186,7 +186,20 @@ function createPanel(cfg) {
                 renderAllPanels();
             }
         });
-        $panel.find('.mg-panel-close').on('click', () => toggle(false));
+        $panel.find('.mg-panel-close').on('click', () => {
+            toggle(false);
+            // Closing viewer B with ✕ also unchecks "Second floating viewer" —
+            // otherwise the setting stays on and the wand entry lingers.
+            if (cfg.key === 'b') {
+                const s = getSettings();
+                if (s.secondEnabled) {
+                    s.secondEnabled = false;
+                    saveSettingsDebounced();
+                    $('#mg_second').prop('checked', false);   // no change event → no toggle loop
+                    addWandButton();                          // removes the second wand entry
+                }
+            }
+        });
         $panel.find('.mg-panel-link').on('click', () => insertMapLink(activeMap()));
         $panel.find('.mg-panel-export').on('click', () => openExport(activeMap()));
         $panel.find('.mg-panel-edit').on('click', async () => {
