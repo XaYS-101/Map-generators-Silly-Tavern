@@ -1,0 +1,6 @@
+{
+    "name": "mapgenerators",
+    "private": true,
+    "type": "module",
+    "description": "SillyTavern extension. package.json exists so the procgen/ modules can also be loaded by node for testing; browsers ignore it."
+}

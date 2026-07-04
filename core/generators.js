@@ -6,6 +6,8 @@
  *   - 'itch' : itch.io-only tool — no URL/seed state, framing unreliable
  *              (Cloudflare/X-Frame), so we open it in a new tab.
  *   - 'url'  : user-supplied custom generator URL — try to iframe it.
+ *   - 'local': built-in procedural generator (procgen/) — runs fully
+ *              offline, renders to a canvas, exports PNG/JSON/text.
  *
  *  Cross-origin note: we CANNOT read a map's state back out of the
  *  iframe. OUR UI owns the seed/params and builds the src; JSON/PNG
@@ -16,13 +18,16 @@
  * @typedef {Object} GeneratorDef
  * @property {string} key
  * @property {string} label
- * @property {'gh'|'itch'|'url'} embed
- * @property {string} base       Live app URL (gh/url) or itch page (itch).
- * @property {boolean} seedable  Whether ?seed= reproduces the result.
+ * @property {'gh'|'itch'|'url'|'local'} embed
+ * @property {string} base       Live app URL (gh/url) or itch page (itch); '' for local.
+ * @property {boolean} seedable  Whether the seed reproduces the result.
  * @property {string[]} params   URL params we expose (gh only).
  * @property {boolean} [json]    Has a parseable JSON export.
  * @property {(o:any)=>string} [parse]
- * @property {string} [note]     Short UI hint.
+ * @property {string} [tagHint]  Placeholder text for the tags input (gh only).
+ * @property {Array<{k:string, type:'select'|'range'|'bool', opts?:string[],
+ *            min?:number, max?:number, step?:number, def:any, i18n:string}>}
+ *            [paramSchema]      Declarative form fields (local only).
  */
 
 /** @type {Record<string, GeneratorDef>} */
@@ -55,6 +60,43 @@ export const GENERATORS = {
         key: 'dwellings', label: 'Dwellings', embed: 'gh',
         base: 'https://watabou.github.io/dwellings/',
         seedable: true, params: ['seed'], json: false,
+    },
+
+    // ---- built-in local procedural generators (procgen/) ----
+    ldungeon: {
+        key: 'ldungeon', label: 'Dungeon (local)', embed: 'local', base: '',
+        seedable: true, params: [],
+        paramSchema: [
+            { k: 'size', type: 'select', opts: ['s', 'm', 'l'], def: 'm', i18n: 'p_size' },
+            { k: 'theme', type: 'select', opts: ['crypt', 'ruins', 'stronghold', 'sewer', 'caves'], def: 'crypt', i18n: 'p_theme' },
+            { k: 'density', type: 'range', min: 0, max: 1, step: 0.1, def: 0.5, i18n: 'p_density' },
+            { k: 'secrets', type: 'bool', def: true, i18n: 'p_secrets' },
+        ],
+    },
+    lregion: {
+        key: 'lregion', label: 'Region / World (local)', embed: 'local', base: '',
+        seedable: true, params: [],
+        paramSchema: [
+            { k: 'mask', type: 'select', opts: ['island', 'coast', 'inland'], def: 'island', i18n: 'p_mask' },
+            { k: 'water', type: 'range', min: 0.15, max: 0.65, step: 0.05, def: 0.42, i18n: 'p_water' },
+            { k: 'settlements', type: 'select', opts: ['few', 'some', 'many'], def: 'some', i18n: 'p_settlements' },
+        ],
+    },
+    ltown: {
+        key: 'ltown', label: 'Town / Village (local)', embed: 'local', base: '',
+        seedable: true, params: [],
+        paramSchema: [
+            { k: 'size', type: 'select', opts: ['village', 'town', 'city'], def: 'town', i18n: 'p_size' },
+            { k: 'water', type: 'select', opts: ['none', 'river', 'coast'], def: 'river', i18n: 'p_water' },
+            { k: 'walls', type: 'bool', def: false, i18n: 'p_walls' },
+        ],
+    },
+    linterior: {
+        key: 'linterior', label: 'Building Interior (local)', embed: 'local', base: '',
+        seedable: true, params: [],
+        paramSchema: [
+            { k: 'building', type: 'select', opts: ['tavern', 'house', 'shop', 'temple', 'manor', 'keep'], def: 'tavern', i18n: 'p_building' },
+        ],
     },
 
     // ---- itch.io-only tools: no seed, open in a new tab ----
@@ -156,6 +198,7 @@ export function detectGenerator(url) {
     try {
         const u = new URL(url);
         for (const def of Object.values(GENERATORS)) {
+            if (!def.base) continue;   // local generators have no URL
             const base = new URL(def.base);
             if (u.host === base.host && u.pathname.replace(/\/$/, '') === base.pathname.replace(/\/$/, '')) {
                 return def.key;

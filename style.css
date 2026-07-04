@@ -61,6 +61,39 @@
 /* ---- generator picker ---- */
 .mg-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .mg-pick-btn { width: 100%; }
+.mg-pick-head {
+    grid-column: 1 / -1;
+    font-weight: 600; opacity: 0.75; text-align: left;
+    margin: 4px 0 0; font-size: 0.9em;
+}
+
+/* ---- local procedural generators ---- */
+.mg-genpopup.mg-local .mg-bar { row-gap: 8px; }
+.mg-genpopup .mg-ctl { display: inline-flex; align-items: center; gap: 5px; }
+.mg-genpopup .mg-ctl > span { opacity: 0.85; }
+.mg-genpopup .mg-ctl select.mg-param { min-width: 6em; }
+.mg-genpopup input[type="range"].mg-param { width: 8em; }
+.mg-local-preview {
+    width: 100%;
+    max-height: 70vh;
+    object-fit: contain;
+    border-radius: 6px;
+    background: #e8dcc0;
+}
+.mg-panel .mg-panel-body .mg-localimg {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    background: #e8dcc0;
+}
+.mg-lightbox { max-width: 92vw; }
+.mg-lightbox img { width: 100%; height: auto; border-radius: 6px; background: #e8dcc0; }
+.mg-editor .mg-seedinfo { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 600px) {
+    .mg-genpopup .mg-ctl select.mg-param,
+    .mg-genpopup .mg-param { min-height: 40px; }
+    .mg-genpopup input[type="range"].mg-param { min-height: 24px; }
+}
 
 /* ---- itch launch card ---- */
 .mg-itchcard { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; padding: 8px; }
