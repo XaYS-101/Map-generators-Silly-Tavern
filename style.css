@@ -163,7 +163,7 @@
     left: 2vw !important; top: 2vh !important; right: auto !important;
     width: 96vw !important; height: 92vh !important;
 }
-.mg-panel .mg-panel-bar { display: flex; gap: 4px; align-items: center; }
+.mg-panel .mg-panel-bar { display: flex; gap: 4px; align-items: center; cursor: move; }
 .mg-panel .mg-panel-bar select { flex: 1; min-width: 0; }
 .mg-panel .mg-panel-bar .menu_button { min-width: 32px; padding: 4px 6px; }
 .mg-panel .mg-panel-body { flex: 1; min-height: 0; border-radius: 6px; overflow: hidden; background: #000; }

@@ -7,12 +7,11 @@
  * ------------------------------------------------------------------ */
 import { saveSettingsDebounced } from '../../../../../script.js';
 
-import { defFor, buildUrl, randomSeed } from '../core/generators.js';
+import { defFor } from '../core/generators.js';
 import * as Local from '../procgen/index.js';
 import { t } from '../core/i18n.js';
-import { getSettings, toast } from '../core/settings.js';
-import { getChatMaps, persistChat } from '../core/store.js';
-import { applyMemory } from '../core/memory.js';
+import { getSettings } from '../core/settings.js';
+import { getChatMaps } from '../core/store.js';
 import { openMapEditor } from './editor.js';
 import { openLibrary } from './library.js';
 import { createNewMap } from './popups.js';
@@ -50,12 +49,16 @@ function toggleMax(key, el) {
     saveSettingsDebounced();
     applyMax(key, el);
 }
-/** Make a panel draggable by its handle via Pointer Events (mouse + touch). */
+/** Make a panel draggable by its handle via Pointer Events (mouse + touch).
+ *  Pointer-downs on interactive children (buttons/selects) are ignored, so
+ *  the whole toolbar can double as a drag handle. */
 function makeMovable(el, handle, key) {
+    if (!handle) return;
     let sx = 0, sy = 0, sl = 0, st = 0, dragging = false;
     handle.style.touchAction = 'none';   // stop the page scrolling while dragging
     handle.addEventListener('pointerdown', (e) => {
         if (panelState(key).maximized) return;  // don't drag while maximized
+        if (e.target.closest('button, select, input, a, textarea')) return;
         dragging = true;
         const r = el.getBoundingClientRect();
         sx = e.clientX; sy = e.clientY; sl = r.left; st = r.top;
@@ -137,11 +140,10 @@ function createPanel(cfg) {
         if (built || !$('#movingDivs').length) return;
         const $panel = $(`
             <div id="${cfg.id}" class="drawer-content flexGap5 mg-panel" style="display:none">
-                <div id="${cfg.id}header" class="fa-fw fa-solid fa-grip drag-grabber"></div>
-                <div class="mg-panel-bar">
+                <div id="${cfg.id}header" class="fa-fw fa-solid fa-grip drag-grabber" title="${t('panel_drag')}"></div>
+                <div class="mg-panel-bar" title="${t('panel_drag')}">
                     <select class="text_pole mg-panel-select"></select>
                     <button class="menu_button mg-panel-new" title="${t('lib_new')}">＋</button>
-                    <button class="menu_button mg-panel-rand" title="${t('gen_random')}">🎲</button>
                     <button class="menu_button mg-panel-max" title="${t('panel_max')}">⛶</button>
                     <button class="menu_button mg-panel-close" title="${t('panel_close')}">✕</button>
                 </div>
@@ -155,8 +157,10 @@ function createPanel(cfg) {
             </div>`);
         $('#movingDivs').append($panel);
         const el = $panel[0];
-        const grabber = $panel.find('.drag-grabber')[0];
-        makeMovable(el, grabber, cfg.key);   // touch + mouse drag
+        // Drag by the grip strip OR by any empty spot on the toolbar
+        // (touch + mouse; clicks on the select/buttons are not drags).
+        makeMovable(el, $panel.find('.drag-grabber')[0], cfg.key);
+        makeMovable(el, $panel.find('.mg-panel-bar')[0], cfg.key);
         applyRect(cfg.key, el);
         applyMax(cfg.key, el);
 
@@ -181,30 +185,6 @@ function createPanel(cfg) {
                 panelState(cfg.key).mapId = map.id; saveSettingsDebounced();
                 renderAllPanels();
             }
-        });
-        $panel.find('.mg-panel-rand').on('click', async () => {
-            const map = activeMap();
-            if (!map) return;
-            const def = defFor(map);
-            if (def.embed === 'local') {
-                map.seed = randomSeed();
-                map.thumbnail = Local.getThumbDataUrl(map);
-                if (map.descSource === 'local') {
-                    map.description = Local.describeMap(map);
-                    // keep the lorebook entry / injection in sync with the new map
-                    if (map.memory?.mode && map.memory.mode !== 'none') {
-                        try { await applyMemory(map, { quiet: true }); } catch (e) { console.error('[MapGenerators] reroll memory sync failed', e); }
-                    }
-                }
-                persistChat();
-                renderBody();
-                return;
-            }
-            if (def.embed !== 'gh' || !def.seedable) { toast(t('no_seed')); return; }
-            map.seed = randomSeed();
-            map.url = buildUrl(map.generator, map.seed, map.params);
-            persistChat();
-            renderBody();
         });
         $panel.find('.mg-panel-close').on('click', () => toggle(false));
         $panel.find('.mg-panel-link').on('click', () => insertMapLink(activeMap()));
