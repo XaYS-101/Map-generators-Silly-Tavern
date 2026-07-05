@@ -85,6 +85,25 @@
 .mg-genpopup .mg-ctl select.mg-param { min-width: 6.5em; }
 .mg-genpopup input[type="range"].mg-param { width: 8em; }
 .mg-genpopup .mg-ctl input[type="text"].mg-param { width: 13em; }
+.mg-genpopup .mg-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mg-genpopup .mg-chip {
+    border: 1px solid var(--SmartThemeBorderColor, #666);
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 0.85em;
+    line-height: 1.5;
+    cursor: pointer;
+    opacity: 0.7;
+    user-select: none;
+    white-space: nowrap;
+}
+.mg-genpopup .mg-chip:hover { opacity: 1; }
+.mg-genpopup .mg-chip.on {
+    opacity: 1;
+    border-color: var(--SmartThemeQuoteColor, #d4b16a);
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor, #d4b16a) 18%, transparent);
+    font-weight: 600;
+}
 .mg-genpopup .mg-seedwrap { flex: 0 1 auto; }
 .mg-genpopup .mg-seedwrap .mg-seed { width: 9em; flex: 0 1 9em; min-width: 6em; }
 .mg-local-preview {
@@ -124,6 +143,10 @@
     .mg-genpopup .mg-ctl input[type="text"].mg-param { flex: 1; width: auto; max-width: 60%; min-height: 40px; }
     .mg-genpopup input[type="range"].mg-param { flex: 1; max-width: 60%; min-height: 28px; }
     .mg-genpopup .mg-ctl input[type="checkbox"].mg-param { width: 24px; height: 24px; }
+    .mg-genpopup .mg-chip {
+        display: inline-flex; align-items: center;
+        min-height: 36px; padding: 4px 14px;
+    }
     .mg-local-preview { max-height: 55dvh; }
     /* the dialog itself is already capped at 100dvw - 2em */
     .mg-editor, .mg-library { max-width: none; }

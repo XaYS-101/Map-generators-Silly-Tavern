@@ -25,7 +25,43 @@ async function openLocalGeneratorPopup(generatorKey, existingMap = null) {
     const $rand = $(`<button class="menu_button" title="${t('gen_random')}">🎲</button>`);
     $bar.append($('<span class="mg-ctl mg-seedwrap"></span>').append($(`<span>${t('gen_seed')}</span>`), $seed, $rand));
 
+    // Clickable tag chips for a text field: toggle keywords in the input so
+    // nobody has to memorize the tag vocabulary. Exclusive groups (sizes,
+    // loops/linear) clear their siblings on pick.
+    function buildChipRow(f, $input) {
+        const parse = () => new Set(String($input.val()).toLowerCase()
+            .split(/[,\s]+/).map(x => x.trim()).filter(Boolean));
+        const $row = $('<div class="mg-chips"></div>');
+        const $chips = f.chips.map(tag => $('<span class="mg-chip"></span>').text(tag).attr('data-tag', tag));
+        const sync = () => {
+            const set = parse();
+            for (const $ch of $chips) $ch.toggleClass('on', set.has($ch.attr('data-tag')));
+        };
+        for (const $ch of $chips) {
+            $ch.on('click', () => {
+                const tag = $ch.attr('data-tag');
+                const set = parse();
+                if (set.has(tag)) {
+                    set.delete(tag);
+                } else {
+                    for (const group of f.chipExclusive || []) {
+                        if (group.includes(tag)) for (const g of group) set.delete(g);
+                    }
+                    set.add(tag);
+                }
+                $input.val([...set].join(', '));
+                sync();
+                refresh();
+            });
+            $row.append($ch);
+        }
+        $input.on('input change', sync);
+        sync();
+        return $row;
+    }
+
     const controls = [];
+    const chipRows = [];
     for (const f of def.paramSchema || []) {
         const cur = existingMap?.params?.[f.k] ?? f.def;
         let $c;
@@ -38,6 +74,7 @@ async function openLocalGeneratorPopup(generatorKey, existingMap = null) {
         } else if (f.type === 'text') {
             $c = $('<input type="text" class="text_pole mg-param" />').val(cur == null ? '' : String(cur));
             if (f.ph) $c.attr('placeholder', t(f.ph));
+            if (f.chips?.length) chipRows.push(buildChipRow(f, $c));
         } else {
             $c = $('<input type="checkbox" class="mg-param" />').prop('checked', !!cur);
         }
@@ -72,7 +109,7 @@ async function openLocalGeneratorPopup(generatorKey, existingMap = null) {
     $seed.on('change', () => { seed = String($seed.val()).trim() || seed; refresh(); });
     for (const { $c } of controls) $c.on('change', refresh);
 
-    $wrap.append($bar, $img);
+    $wrap.append($bar, ...chipRows, $img);
     refresh();
 
     const result = await callGenericPopup($wrap, POPUP_TYPE.CONFIRM, '', {

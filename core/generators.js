@@ -73,7 +73,14 @@ export const GENERATORS = {
             { k: 'danger', type: 'select', opts: ['safe', 'low', 'medium', 'deadly'], def: 'medium', i18n: 'p_danger' },
             { k: 'secrets', type: 'bool', def: true, i18n: 'p_secrets' },
             { k: 'icons', type: 'bool', def: true, i18n: 'p_icons' },
-            { k: 'tags', type: 'text', def: '', i18n: 'p_tags', ph: 'p_tags_ph' },
+            {
+                k: 'tags', type: 'text', def: '', i18n: 'p_tags', ph: 'p_tags_ph',
+                // clickable chips so users don't have to memorize the vocabulary;
+                // groups are mutually exclusive (picking one clears its siblings)
+                chips: ['undead', 'bandits', 'beasts', 'vermin', 'haunted', 'treasure', 'deadly', 'empty',
+                    'den', 'small', 'large', 'huge', 'loops', 'linear'],
+                chipExclusive: [['den', 'small', 'large', 'huge'], ['loops', 'linear']],
+            },
         ],
     },
     lregion: {

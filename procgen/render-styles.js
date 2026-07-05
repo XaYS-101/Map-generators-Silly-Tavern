@@ -326,9 +326,9 @@ export function drawDungeon(ctx, model, rng, h, view) {
             if (!glyphs.length) continue;
             const [cx, cy] = px(r.x + r.w / 2, r.y + r.h / 2);
             const gy = cy + s * 0.62;
-            const step = s * 0.45;
+            const step = s * 0.55;
             let gx = cx - step * (glyphs.length - 1) / 2;
-            ctx.globalAlpha = 0.75;
+            ctx.globalAlpha = 0.85;
             for (const g of glyphs) {
                 drawContentIcon(ctx, g, gx, gy, s, h.INK);
                 gx += step;
@@ -340,10 +340,10 @@ export function drawDungeon(ctx, model, rng, h, view) {
 
 /** Tiny ink glyphs: ▲ monster, ◆ treasure, ^ trap, key. */
 function drawContentIcon(ctx, kind, gx, gy, s, ink) {
-    const r = s * 0.16;
+    const r = s * 0.24;
     ctx.fillStyle = ink;
     ctx.strokeStyle = ink;
-    ctx.lineWidth = 1.2;
+    ctx.lineWidth = 1.5;
     ctx.lineCap = 'round';
     if (kind === 'mob') {
         ctx.beginPath();
