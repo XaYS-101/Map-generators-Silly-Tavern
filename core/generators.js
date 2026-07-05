@@ -70,7 +70,10 @@ export const GENERATORS = {
             { k: 'size', type: 'select', opts: ['s', 'm', 'l'], def: 'm', i18n: 'p_size' },
             { k: 'theme', type: 'select', opts: ['crypt', 'ruins', 'stronghold', 'sewer', 'caves'], def: 'crypt', i18n: 'p_theme' },
             { k: 'density', type: 'range', min: 0, max: 1, step: 0.1, def: 0.5, i18n: 'p_density' },
+            { k: 'danger', type: 'select', opts: ['safe', 'low', 'medium', 'deadly'], def: 'medium', i18n: 'p_danger' },
             { k: 'secrets', type: 'bool', def: true, i18n: 'p_secrets' },
+            { k: 'icons', type: 'bool', def: true, i18n: 'p_icons' },
+            { k: 'tags', type: 'text', def: '', i18n: 'p_tags', ph: 'p_tags_ph' },
         ],
     },
     lregion: {

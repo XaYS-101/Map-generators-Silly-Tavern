@@ -13,7 +13,7 @@ import { generateInterior } from './gen-interior.js';
 import { renderMap } from './render.js';
 import { describe, compactJson } from './describe.js';
 
-const GEN_VERSION = 2;
+const GEN_VERSION = 5;
 
 const TYPE_BY_KEY = { ldungeon: 'dungeon', lregion: 'region', ltown: 'town', linterior: 'interior' };
 const GEN_BY_TYPE = { dungeon: generateDungeon, region: generateRegion, town: generateTown, interior: generateInterior };

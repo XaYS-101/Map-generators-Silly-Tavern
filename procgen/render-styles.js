@@ -10,13 +10,140 @@ import { rleDecode } from './schema.js';
 const idNum = id => Number(String(id).replace(/^\D+/, ''));
 
 /* ------------------------------------------------------------------
- *  Dungeon: floor tiles + traced wall runs + outside crosshatch,
- *  classic one-page-dungeon look.
+ *  Dungeon: polygon floor + traced wall loops with diagonal smoothing
+ *  + outside crosshatch, classic one-page-dungeon look.
  * ------------------------------------------------------------------ */
 const DUNGEON_FLOOR = {
     crypt: '#ece2c8', ruins: '#e9e3c9', stronghold: '#eadfc2',
     sewer: '#e2e4c4', caves: '#e6dcc3',
 };
+
+/* Per-theme line character: crosshatch alpha, wall wobble, water tint. */
+const THEME_STYLE = {
+    crypt: { hatch: 0.34, wallWobble: 0.9 },
+    ruins: { hatch: 0.22, wallWobble: 1.3 },
+    stronghold: { hatch: 0.30, wallWobble: 0.6 },
+    sewer: { hatch: 0.30, wallWobble: 0.8, water: '#a9c4b8' },
+    caves: { hatch: 0.26, wallWobble: 1.6 },
+};
+
+const FLOOR_CHARS = new Set(['.', '+', '<', '>', '~']);
+
+/* ------------------------------------------------------------------
+ *  Boundary tracer. Pure & RNG-free (node-testable).
+ *
+ *  Walks the floor/wall boundary into closed vertex loops. Edges are
+ *  directed with the floor on the LEFT of travel, so outer boundaries
+ *  and holes (pillars) wind oppositely — a single nonzero-winding fill
+ *  paints floors and keeps holes. With smooth:true, collinear unit
+ *  edges merge into runs and 1:1 staircases (octagon chamfers, rotunda
+ *  rims) collapse into diagonals; 4-edge loops (1x1 pillars) are kept
+ *  square. Vertices are cell-corner coords; loops omit the closing
+ *  duplicate vertex.
+ * ------------------------------------------------------------------ */
+export function traceDungeonWalls(rows, { smooth = true } = {}) {
+    const H = rows.length, W = rows[0].length;
+    const at = (x, y) => (rows[y]?.[x]) ?? '#';
+    const floor = (x, y) => FLOOR_CHARS.has(at(x, y));
+
+    // directed boundary edges, keyed by start vertex
+    const edges = new Map();
+    const add = (x1, y1, x2, y2) => {
+        const k = x1 + ',' + y1;
+        if (!edges.has(k)) edges.set(k, []);
+        edges.get(k).push([x2, y2]);
+    };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        if (!floor(x, y)) continue;
+        if (!floor(x, y - 1)) add(x + 1, y, x, y);           // top side, travel -x
+        if (!floor(x, y + 1)) add(x, y + 1, x + 1, y + 1);   // bottom side, travel +x
+        if (!floor(x - 1, y)) add(x, y, x, y + 1);           // left side, travel +y
+        if (!floor(x + 1, y)) add(x + 1, y + 1, x + 1, y);   // right side, travel -y
+    }
+
+    const loops = [];
+    for (const [k, list] of edges) {
+        while (list.length) {
+            const [sx, sy] = k.split(',').map(Number);
+            let [cx, cy] = list.pop();
+            let px = sx, py = sy;
+            const loop = [[sx, sy]];
+            while (cx !== sx || cy !== sy) {
+                loop.push([cx, cy]);
+                const cands = edges.get(cx + ',' + cy);
+                if (!cands || !cands.length) break;          // broken boundary (shouldn't happen)
+                let idx = 0;
+                if (cands.length > 1) {
+                    // ambiguous vertex (regions touching diagonally): prefer the
+                    // left-most turn to keep hugging the same region
+                    const dinX = cx - px, dinY = cy - py;
+                    const pref = [[dinY, -dinX], [dinX, dinY], [-dinY, dinX]];
+                    outer: for (const [pdx, pdy] of pref) {
+                        for (let i = 0; i < cands.length; i++) {
+                            if (cands[i][0] - cx === pdx && cands[i][1] - cy === pdy) { idx = i; break outer; }
+                        }
+                    }
+                }
+                const [nx, ny] = cands.splice(idx, 1)[0];
+                px = cx; py = cy;
+                cx = nx; cy = ny;
+            }
+            loops.push(smooth ? simplifyLoop(loop) : loop);
+        }
+    }
+    return loops;
+}
+
+function simplifyLoop(pts) {
+    const n = pts.length;
+    if (n <= 4) return pts.slice();                          // 1x1 pillars stay square
+    const dirAt = i => {
+        const a = pts[i], b = pts[(i + 1) % n];
+        return (b[0] - a[0]) + ',' + (b[1] - a[1]);
+    };
+    // rotate so the list starts at a corner
+    let s0 = 0;
+    for (let i = 0; i < n; i++) {
+        if (dirAt((i + n - 1) % n) !== dirAt(i)) { s0 = i; break; }
+    }
+    const rp = [];
+    for (let i = 0; i < n; i++) rp.push(pts[(s0 + i) % n]);
+
+    // merge collinear unit edges into direction tokens
+    const toks = [];
+    for (let i = 0; i < n; i++) {
+        const a = rp[i], b = rp[(i + 1) % n];
+        const d = (b[0] - a[0]) + ',' + (b[1] - a[1]);
+        const last = toks[toks.length - 1];
+        if (last && last.d === d) { last.len++; last.end = b; }
+        else toks.push({ d, len: 1, start: a, end: b });
+    }
+
+    // collapse maximal alternating runs of unit tokens into diagonals
+    const segs = [];
+    let i = 0;
+    while (i < toks.length) {
+        const t = toks[i];
+        if (t.len === 1 && i + 1 < toks.length && toks[i + 1].len === 1 && toks[i + 1].d !== t.d) {
+            const pair = new Set([t.d, toks[i + 1].d]);
+            let j = i + 1;
+            while (j < toks.length && toks[j].len === 1 && pair.has(toks[j].d)) j++;
+            if (j - i >= toks.length) j = toks.length - 1;    // never swallow the whole loop
+            if (j - i >= 2) {
+                segs.push({ start: t.start, end: toks[j - 1].end });
+                i = j;
+                continue;
+            }
+        }
+        segs.push(t);
+        i++;
+    }
+
+    const verts = [segs[0].start];
+    for (const seg of segs) verts.push(seg.end);
+    verts.pop();                                             // closing duplicate
+    return verts;
+}
 
 export function drawDungeon(ctx, model, rng, h, view) {
     const { s, ox, oy } = view;
@@ -24,23 +151,36 @@ export function drawDungeon(ctx, model, rng, h, view) {
     const rows = rleDecode(model.layers.grid);
     const W = rows[0].length, H = rows.length;
     const at = (x, y) => (rows[y]?.[x]) ?? '#';
-    const isFloor = c => c === '.' || c === '+' || c === '<' || c === '>' || c === '~';
+    const isFloor = c => FLOOR_CHARS.has(c);
     const wallAt = (x, y) => !isFloor(at(x, y));
     const floorColor = DUNGEON_FLOOR[model.params.theme] || DUNGEON_FLOOR.crypt;
+    const style = THEME_STYLE[model.params.theme] || THEME_STYLE.crypt;
 
-    // floor fill with subtle tile variation
+    // wall loops traced once: polygon floor fill + smoothed wall ink both
+    // come from them, so diagonals stay perfectly aligned
+    const loops = traceDungeonWalls(rows, { smooth: true });
+
+    // floor: one path, nonzero winding keeps pillar holes unfilled
+    ctx.fillStyle = floorColor;
+    ctx.beginPath();
+    for (const loop of loops) {
+        loop.forEach(([vx, vy], i) => {
+            const [X, Y] = px(vx, vy);
+            if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y);
+        });
+        ctx.closePath();
+    }
+    ctx.fill();
+
+    // subtle tile variation specks
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        if (!isFloor(at(x, y))) continue;
-        ctx.fillStyle = floorColor;
-        ctx.fillRect(ox + x * s, oy + y * s, s, s);
-        if (rng.chance(0.07)) {
-            ctx.fillStyle = 'rgba(120,95,55,0.07)';
-            ctx.fillRect(ox + x * s + 1, oy + y * s + 1, s - 2, s - 2);
-        }
+        if (!isFloor(at(x, y)) || !rng.chance(0.07)) continue;
+        ctx.fillStyle = 'rgba(120,95,55,0.07)';
+        ctx.fillRect(ox + x * s + 1, oy + y * s + 1, s - 2, s - 2);
     }
 
     // water tiles (sewer basins): tinted fill + faint wave strokes
-    ctx.fillStyle = '#b9cbc6';
+    ctx.fillStyle = style.water || '#b9cbc6';
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
         if (at(x, y) === '~') ctx.fillRect(ox + x * s, oy + y * s, s, s);
     }
@@ -56,7 +196,7 @@ export function drawDungeon(ctx, model, rng, h, view) {
     ctx.stroke();
 
     // crosshatch band on wall cells that touch floor
-    ctx.strokeStyle = 'rgba(58,44,26,0.3)';
+    ctx.strokeStyle = `rgba(58,44,26,${style.hatch})`;
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -73,28 +213,20 @@ export function drawDungeon(ctx, model, rng, h, view) {
     }
     ctx.stroke();
 
-    // wall outlines: merge floor/wall boundary into long runs, ink them
-    const segs = [];
-    for (let y = 0; y < H; y++) {
-        let runTop = null, runBot = null;
-        for (let x = 0; x <= W; x++) {
-            const top = x < W && isFloor(at(x, y)) && wallAt(x, y - 1);
-            const bot = x < W && isFloor(at(x, y)) && wallAt(x, y + 1);
-            if (top) { if (runTop == null) runTop = x; } else if (runTop != null) { segs.push([[runTop, y], [x, y]]); runTop = null; }
-            if (bot) { if (runBot == null) runBot = x; } else if (runBot != null) { segs.push([[runBot, y + 1], [x, y + 1]]); runBot = null; }
-        }
+    // wall ink: smoothed boundary loops (long straights + 45° chamfers)
+    for (const loop of loops) {
+        h.inkPoly(loop.map(([vx, vy]) => px(vx, vy)), { width: 2.2, wobble: style.wallWobble });
     }
-    for (let x = 0; x < W; x++) {
-        let runL = null, runR = null;
-        for (let y = 0; y <= H; y++) {
-            const l = y < H && isFloor(at(x, y)) && wallAt(x - 1, y);
-            const r = y < H && isFloor(at(x, y)) && wallAt(x + 1, y);
-            if (l) { if (runL == null) runL = y; } else if (runL != null) { segs.push([[x, runL], [x, y]]); runL = null; }
-            if (r) { if (runR == null) runR = y; } else if (runR != null) { segs.push([[x + 1, runR], [x + 1, y]]); runR = null; }
+
+    // secret / locked door cells (Phase 3 tracks the door cell on the edge)
+    const secretAt = new Set(), lockedAt = new Set();
+    for (const e of model.edges || []) {
+        for (const cell of [e.at, e.at2]) {
+            if (!cell) continue;
+            const k = cell[0] + ',' + cell[1];
+            if (e.kind === 'secret') secretAt.add(k);   // both thresholds hidden
+            if (e.locked) lockedAt.add(k);              // sealed at both ends
         }
-    }
-    for (const [[x1, y1], [x2, y2]] of segs) {
-        h.inkLine([px(x1, y1), px(x2, y2)], { width: 2.2, wobble: 0.9 });
     }
 
     // doors, stairs
@@ -103,13 +235,40 @@ export function drawDungeon(ctx, model, rng, h, view) {
         const [x0, y0] = px(x, y);
         if (c === '+') {
             const vertCorr = wallAt(x - 1, y) && wallAt(x + 1, y);
-            ctx.fillStyle = h.PARCHMENT;
-            if (vertCorr) {
-                ctx.fillRect(x0 + s * 0.1, y0 + s * 0.3, s * 0.8, s * 0.4);
-                h.inkRect(x0 + s * 0.1, y0 + s * 0.3, s * 0.8, s * 0.4, { width: 1.1, wobble: 0.4, overshoot: 1 });
+            const rect = vertCorr
+                ? [x0 + s * 0.1, y0 + s * 0.3, s * 0.8, s * 0.4]
+                : [x0 + s * 0.3, y0 + s * 0.1, s * 0.4, s * 0.8];
+            if (secretAt.has(x + ',' + y)) {
+                // hidden door: dashed outline + a small "S", no solid rect
+                ctx.save();
+                ctx.setLineDash([2, 2]);
+                ctx.strokeStyle = h.INK;
+                ctx.globalAlpha = 0.6;
+                ctx.lineWidth = 1;
+                ctx.strokeRect(...rect);
+                ctx.restore();
+                ctx.globalAlpha = 0.8;
+                ctx.fillStyle = h.INK;
+                ctx.font = `600 ${Math.max(7, s * 0.5)}px Georgia, serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('S', x0 + s / 2, y0 + s / 2);
+                ctx.textAlign = 'start';
+                ctx.textBaseline = 'alphabetic';
+                ctx.globalAlpha = 1;
+            } else if (lockedAt.has(x + ',' + y)) {
+                // locked: dark barred door + parchment keyhole
+                ctx.fillStyle = 'rgba(58,44,26,0.85)';
+                ctx.fillRect(...rect);
+                h.inkRect(...rect, { width: 1.1, wobble: 0.4, overshoot: 1 });
+                ctx.fillStyle = h.PARCHMENT;
+                ctx.beginPath();
+                ctx.arc(x0 + s / 2, y0 + s / 2, Math.max(1.2, s * 0.09), 0, Math.PI * 2);
+                ctx.fill();
             } else {
-                ctx.fillRect(x0 + s * 0.3, y0 + s * 0.1, s * 0.4, s * 0.8);
-                h.inkRect(x0 + s * 0.3, y0 + s * 0.1, s * 0.4, s * 0.8, { width: 1.1, wobble: 0.4, overshoot: 1 });
+                ctx.fillStyle = h.PARCHMENT;
+                ctx.fillRect(...rect);
+                h.inkRect(...rect, { width: 1.1, wobble: 0.4, overshoot: 1 });
             }
         } else if (c === '>') {
             for (let i = 1; i <= 3; i++) {
@@ -121,11 +280,102 @@ export function drawDungeon(ctx, model, rng, h, view) {
         }
     }
 
+    // entrance approach: fading dashes from the outer wall toward the border
+    let ent = null;
+    for (let y = 0; y < H && !ent; y++) for (let x = 0; x < W; x++) {
+        if (at(x, y) === '<') { ent = [x, y]; break; }
+    }
+    if (ent) {
+        const dirs = [[ent[0], [-1, 0]], [W - 1 - ent[0], [1, 0]], [ent[1], [0, -1]], [H - 1 - ent[1], [0, 1]]]
+            .sort((a, b) => a[0] - b[0]);
+        const [ddx, ddy] = dirs[0][1];
+        let wx = ent[0], wy = ent[1];
+        while (isFloor(at(wx + ddx, wy + ddy))) { wx += ddx; wy += ddy; }  // last floor cell
+        ctx.strokeStyle = h.INK;
+        ctx.lineWidth = 1.4;
+        ctx.lineCap = 'round';
+        for (let i = 0; i < 3; i++) {
+            const t0 = 0.45 + i * 0.85, t1 = t0 + 0.45;
+            const [ax, ay] = px(wx + 0.5 + ddx * t0, wy + 0.5 + ddy * t0);
+            const [bx, by] = px(wx + 0.5 + ddx * t1, wy + 0.5 + ddy * t1);
+            ctx.globalAlpha = 0.5 - i * 0.15;
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(bx, by);
+            ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+    }
+
     // room numbers (base36, matches the prose/ascii ids)
     for (const r of model.entities.filter(e => e.kind === 'room')) {
         const lbl = idNum(r.id).toString(36).toUpperCase();
         const [cx, cy] = px(r.x + r.w / 2, r.y + r.h / 2);
         h.label(lbl, cx, cy + s * 0.22, { size: Math.max(11, s * 0.62), italic: false, weight: '600' });
+    }
+
+    // content micro-icons under the room number (cosmetic, params.icons)
+    if (model.params.icons !== false) {
+        for (const r of model.entities.filter(e => e.kind === 'room')) {
+            const c = r.content || {};
+            const glyphs = [];
+            if (c.encounter) glyphs.push('mob');
+            if (c.treasure) glyphs.push('loot');
+            if (c.trap) glyphs.push('trap');
+            if (c.key) glyphs.push('key');
+            if (!glyphs.length) continue;
+            const [cx, cy] = px(r.x + r.w / 2, r.y + r.h / 2);
+            const gy = cy + s * 0.62;
+            const step = s * 0.45;
+            let gx = cx - step * (glyphs.length - 1) / 2;
+            ctx.globalAlpha = 0.75;
+            for (const g of glyphs) {
+                drawContentIcon(ctx, g, gx, gy, s, h.INK);
+                gx += step;
+            }
+            ctx.globalAlpha = 1;
+        }
+    }
+}
+
+/** Tiny ink glyphs: ▲ monster, ◆ treasure, ^ trap, key. */
+function drawContentIcon(ctx, kind, gx, gy, s, ink) {
+    const r = s * 0.16;
+    ctx.fillStyle = ink;
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = 'round';
+    if (kind === 'mob') {
+        ctx.beginPath();
+        ctx.moveTo(gx, gy - r);
+        ctx.lineTo(gx - r, gy + r * 0.8);
+        ctx.lineTo(gx + r, gy + r * 0.8);
+        ctx.closePath();
+        ctx.fill();
+    } else if (kind === 'loot') {
+        ctx.beginPath();
+        ctx.moveTo(gx, gy - r);
+        ctx.lineTo(gx + r * 0.8, gy);
+        ctx.lineTo(gx, gy + r);
+        ctx.lineTo(gx - r * 0.8, gy);
+        ctx.closePath();
+        ctx.fill();
+    } else if (kind === 'trap') {
+        ctx.beginPath();
+        ctx.moveTo(gx - r, gy + r * 0.6);
+        ctx.lineTo(gx, gy - r * 0.7);
+        ctx.lineTo(gx + r, gy + r * 0.6);
+        ctx.stroke();
+    } else if (kind === 'key') {
+        ctx.beginPath();
+        ctx.arc(gx - r * 0.45, gy, r * 0.5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(gx, gy);
+        ctx.lineTo(gx + r, gy);
+        ctx.moveTo(gx + r * 0.6, gy);
+        ctx.lineTo(gx + r * 0.6, gy + r * 0.5);
+        ctx.stroke();
     }
 }
 

@@ -29,12 +29,13 @@ export function describe(model) {
 const idNum = id => id.replace(/^\D+/, '');
 
 function exitsOf(model, id) {
+    const secretWord = model.params?.theme === 'caves' ? 'concealed passage' : 'secret door';
     return model.edges
         .filter(e => e.a === id || e.b === id)
         .map(e => {
             const other = e.a === id ? e.b : e.a;
             const dir = e.a === id ? e.dir : oppositeDir(e.dir);
-            const kind = e.kind === 'secret' ? 'secret door' : e.kind;
+            const kind = e.kind === 'secret' ? secretWord : e.kind;
             return `${dir}→${idNum(other)} (${kind}${e.locked ? ', locked' : ''})`;
         });
 }
@@ -63,23 +64,48 @@ function describeDungeon(model) {
     if (entrance) ov += ` The entrance (Room ${idNum(entrance.id)}) lies to the ${placeDir(model, entrance.x + entrance.w / 2, entrance.y + entrance.h / 2)}`;
     if (exit) ov += `; the deepest chamber (Room ${idNum(exit.id)}, ${exit.name}) lies to the ${placeDir(model, exit.x + exit.w / 2, exit.y + exit.h / 2)}`;
     ov += '.';
+    const DANGER_TONE = {
+        safe: 'The place seems long abandoned and largely safe.',
+        low: 'Danger is light — scattered vermin and a few old traps.',
+        medium: 'Danger is moderate; several chambers are still occupied.',
+        deadly: 'This is a deadly place — expect guarded halls and lethal traps.',
+    };
+    ov += ' ' + (DANGER_TONE[model.params.danger] || DANGER_TONE.medium);
+    const lockedE = model.edges.find(e => e.locked);
+    if (lockedE) {
+        ov += ` A locked ${lockedE.kind === 'gate' ? 'gate' : 'door'} between rooms ${idNum(lockedE.a)} and ${idNum(lockedE.b)} bars the way; its key is hidden in one of the chambers.`;
+    }
     lines.push(ov);
     lines.push('', 'Rooms:');
 
     const MAX = 16;
     let main = rooms, rest = [];
     if (rooms.length > MAX) {
-        const score = r => (r.tags?.length ? 100 : 0) + exitsOf(model, r.id).length * 5 + r.w * r.h * 0.1;
+        // key/hook rooms must reach the AI even on huge maps
+        const score = r => (r.tags?.length ? 100 : 0)
+            + (r.content?.key ? 50 : 0) + (r.content?.hook ? 15 : 0)
+            + exitsOf(model, r.id).length * 5 + r.w * r.h * 0.1;
         const ranked = [...rooms].sort((a, b) => score(b) - score(a));
         const keep = new Set(ranked.slice(0, MAX).map(r => r.id));
         main = rooms.filter(r => keep.has(r.id));
         rest = rooms.filter(r => !keep.has(r.id));
     }
+    const SHAPE_WORD = { round: 'round', octagon: 'octagonal', cross: 'cross-shaped', columned: 'columned' };
     for (const r of main) {
         const exits = exitsOf(model, r.id);
         const tags = (r.tags || []).filter(t => t !== 'secret');
         const tagTxt = tags.length ? ` [${tags.join(', ')}]` : '';
-        lines.push(`${idNum(r.id)}. ${r.name} (${r.w}x${r.h})${tagTxt}${r.notes ? ' — ' + r.notes : ''}. Exits: ${exits.join(', ') || 'none'}.`);
+        const shapeTxt = SHAPE_WORD[r.shape] ? ', ' + SHAPE_WORD[r.shape] : '';
+        const c = r.content || {};
+        const segs = [];
+        if (r.notes) segs.push(r.notes);           // dressing + hazard + flags
+        if (c.encounter) segs.push('foe: ' + c.encounter);
+        if (c.treasure) segs.push('loot: ' + c.treasure);
+        if (c.trap) segs.push('trap: ' + c.trap);
+        if (c.key) segs.push('key: ' + c.key);
+        if (c.hook) segs.push('clue: ' + c.hook);
+        const body = segs.length ? ' — ' + segs.join('; ') : '';
+        lines.push(`${idNum(r.id)}. ${r.name} (${r.w}x${r.h}${shapeTxt})${tagTxt}${body}. Exits: ${exits.join(', ') || 'none'}.`);
     }
     if (rest.length) {
         lines.push(`…plus ${rest.length} minor chambers (${rest.map(r => `${idNum(r.id)}: ${r.purpose}`).join(', ')}).`);

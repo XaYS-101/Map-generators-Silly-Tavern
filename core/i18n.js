@@ -100,6 +100,10 @@ const I18N = {
         p_settlements: 'Settlements',
         p_walls: 'City walls',
         p_building: 'Building',
+        p_danger: 'Danger',
+        p_icons: 'Map icons',
+        p_tags: 'Tags',
+        p_tags_ph: 'e.g. undead, treasure, huge, den, loops',
     },
     ru: {
         ext_title: 'Генераторы карт',
@@ -196,6 +200,10 @@ const I18N = {
         p_settlements: 'Поселения',
         p_walls: 'Городские стены',
         p_building: 'Здание',
+        p_danger: 'Опасность',
+        p_icons: 'Значки на карте',
+        p_tags: 'Теги',
+        p_tags_ph: 'напр. undead, treasure, huge, den, loops',
     },
 };
 

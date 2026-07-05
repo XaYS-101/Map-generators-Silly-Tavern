@@ -35,6 +35,9 @@ async function openLocalGeneratorPopup(generatorKey, existingMap = null) {
             $c.val(String(cur));
         } else if (f.type === 'range') {
             $c = $(`<input type="range" min="${f.min}" max="${f.max}" step="${f.step}" class="mg-param" />`).val(cur);
+        } else if (f.type === 'text') {
+            $c = $('<input type="text" class="text_pole mg-param" />').val(cur == null ? '' : String(cur));
+            if (f.ph) $c.attr('placeholder', t(f.ph));
         } else {
             $c = $('<input type="checkbox" class="mg-param" />').prop('checked', !!cur);
         }
