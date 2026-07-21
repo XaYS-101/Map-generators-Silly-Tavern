@@ -135,9 +135,9 @@ test('model snapshots (update deliberately on generator changes)', () => {
     // pinned against the v1.10.0 pipeline; on a deliberate generator change,
     // print `got` and update these values in the same commit
     assert.deepEqual(got, {
-        'i1/tavern': 1598827319,
-        'i1/spec': 340812048,
-        'hearth/tavern': 198019143,
-        'hearth/spec': 4290378965,
+        'i1/tavern': 2454117200,
+        'i1/spec': 917380064,
+        'hearth/tavern': 431030198,
+        'hearth/spec': 2971489470,
     });
 });

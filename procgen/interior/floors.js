@@ -110,7 +110,8 @@ function assignGroundPurposes(kind, floor, rng) {
 function buildAux(kind, level, label, W, H, scale, rng) {
     const w = Math.max(6, Math.round(W * scale));
     const h = Math.max(5, Math.round(H * scale));
-    const rects = sliceRegion({ x: 0, y: 0, w, h }, 'any', rng, 24);
+    // aux floors read as service space: fewer, larger rooms than the ground floor
+    const rects = sliceRegion({ x: 0, y: 0, w, h }, 'any', rng, 44);
     const floor = { level, label, w, h, cut: null, rooms: [] };
     rects.forEach((r, i) => floor.rooms.push({
         x: r.x, y: r.y, w: r.w, h: r.h, level, li: i,
