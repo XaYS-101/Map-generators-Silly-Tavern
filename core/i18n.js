@@ -107,6 +107,13 @@ const I18N = {
         p_icons: 'Map icons',
         p_tags: 'Tags',
         p_tags_ph: 'e.g. undead, treasure, huge, den, loops',
+        p_continents: 'Continents',
+        p_nations: 'Nations',
+        p_age: 'World age',
+        p_seas: 'Seas',
+        zoom_region: 'Region from this spot…',
+        zoom_hint: 'Click a spot on the world map to generate a region there',
+        zoom_created: 'Region map created',
     },
     ru: {
         ext_title: 'Генераторы карт',
@@ -210,6 +217,13 @@ const I18N = {
         p_icons: 'Значки на карте',
         p_tags: 'Теги',
         p_tags_ph: 'напр. undead, treasure, huge, den, loops',
+        p_continents: 'Континенты',
+        p_nations: 'Государства',
+        p_age: 'Возраст мира',
+        p_seas: 'Моря',
+        zoom_region: 'Регион из этой точки…',
+        zoom_hint: 'Кликните точку на карте мира, чтобы создать там регион',
+        zoom_created: 'Карта региона создана',
     },
 };
 

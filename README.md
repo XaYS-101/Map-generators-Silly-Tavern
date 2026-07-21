@@ -16,10 +16,11 @@ https://github.com/XaYS-101/Map-generators-Silly-Tavern
 
 ## Features
 
-- **Built-in local generators (since 1.1)**: four fully offline procedural
+- **Built-in local generators (since 1.1)**: five fully offline procedural
   generators written for this extension (no iframe, no internet).
   **Dungeon** (BSP rooms & corridors, or cellular-automata caves),
   **Region** (staged pipeline: hydrology, climate biomes, settlements, roads),
+  **World** (whole-planet map: plate tectonics, climate belts, nations),
   **Town / Village** (road network, buildings, landmarks, optional walls) and
   **Building Interior** (floor plans: tavern, house, shop, temple, manor, keep).
   Every local map is deterministic from its seed + options and produces all
@@ -67,6 +68,21 @@ https://github.com/XaYS-101/Map-generators-Silly-Tavern
   gentle ground and crosses rivers only at **bridges or fords**. A **Rivers**
   control (dry / normal / wet) and a **map size** (small / medium / large)
   round out the options.
+- **The local world, in detail** (new in 1.8.0): a whole-planet generator built
+  on **plate tectonics** — drifting plates raise mountain ranges at collisions
+  and open oceans at rifts. A **planetary climate** model lays down latitude
+  temperature belts with **polar ice caps**, deserts in the rain shadows and
+  rainforests at the equator (an **iceage / temperate / hot** control shifts the
+  whole climate, and a **Seas** slider sets how much of the surface is ocean).
+  The land is carved into **nations** with drawn **borders, cultures and
+  relations**, linked by **trade routes and sea lanes**, and dotted with
+  **wonders**. **Ancient** worlds are seeded with the **ruins of fallen
+  empires**. Controls: continents (pangea / continents / archipelago /
+  shattered), seas, size, climate, nations (few / some / many), world age
+  (young / ancient) and rivers. From a saved world you can **zoom into any
+  spot**: open the world in the editor and click **Region from this spot…**,
+  then click a point on the map to spawn a matching **Region (local)** map for
+  that cell, saved straight into the chat library.
 - **Floating viewer beside the chat**: a draggable, resizable window (touch &
   mouse; drag it by its toolbar or the grip strip) that keeps a map next to
   the chat so you see both at once. Open it from the wand menu (🗺️). You can
@@ -142,6 +158,17 @@ code. Please credit Watabou and consider supporting the tools on
 - AI vision requires a multimodal model configured in SillyTavern.
 - Deleting a map or disabling its memory only *disables* its lorebook entry
   (never deletes it), so nothing is lost by accident.
+
+## Changed in 1.8.0
+
+- **New local World generator.** A whole-planet map built on plate tectonics,
+  with a planetary climate model (polar ice caps, deserts, rainforests),
+  nations with borders / cultures / relations, trade routes and sea lanes,
+  wonders, and — for ancient worlds — the ruins of fallen empires.
+- **World → region zoom.** Open a saved world in the editor and click **Region
+  from this spot…**, then click a point on the map to generate a matching
+  **Region (local)** map for that world cell, added to the chat library.
+- The **Region** generator is unchanged from 1.7.0.
 
 ## Changed in 1.7.0
 

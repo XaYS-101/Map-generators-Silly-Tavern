@@ -11,7 +11,7 @@ import { chatStore, persistChat } from '../core/store.js';
 import { applyMemory } from '../core/memory.js';
 import { readFileText, readFileDataUrl, downscaleDataUrl, downloadFile, safeFileName } from '../core/files.js';
 import { describeViaVision, insertPreviewIntoChat } from '../core/vision.js';
-import { openGeneratorPopup } from './popups.js';
+import { openGeneratorPopup, openWorldZoomPicker } from './popups.js';
 
 export async function openMapEditor(map, { isNew = false } = {}) {
     const def = defFor(map);
@@ -132,6 +132,20 @@ export async function openMapEditor(map, { isNew = false } = {}) {
             toast(t('desc_rebuilt'), 'success');
         });
         $localBtns.push($dlPng, $dlJson, $reDesc);
+
+        // World maps zoom into a region: click a spot on the world to spawn a
+        // new Region (local) map, saved straight into the chat library.
+        if (map.generator === 'lworld') {
+            const $zoom = $(`<button class="menu_button">${t('zoom_region')}</button>`);
+            $zoom.on('click', async () => {
+                const region = await openWorldZoomPicker(map);
+                if (!region) return;
+                const store = chatStore();
+                if (store) { store.maps.push(region); persistChat(); }
+                toast(t('zoom_created'), 'success');
+            });
+            $localBtns.push($zoom);
+        }
     }
 
     $f.append(

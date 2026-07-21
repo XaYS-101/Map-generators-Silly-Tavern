@@ -10,13 +10,14 @@ import { generateDungeon } from './gen-dungeon.js';
 import { generateRegion } from './gen-region.js';
 import { generateTown } from './gen-town.js';
 import { generateInterior } from './gen-interior.js';
+import { generateWorld } from './gen-world.js';
 import { renderMap } from './render.js';
 import { describe, compactJson } from './describe.js';
 
 const GEN_VERSION = 6;
 
-const TYPE_BY_KEY = { ldungeon: 'dungeon', lregion: 'region', ltown: 'town', linterior: 'interior' };
-const GEN_BY_TYPE = { dungeon: generateDungeon, region: generateRegion, town: generateTown, interior: generateInterior };
+const TYPE_BY_KEY = { ldungeon: 'dungeon', lregion: 'region', ltown: 'town', linterior: 'interior', lworld: 'world' };
+const GEN_BY_TYPE = { dungeon: generateDungeon, region: generateRegion, town: generateTown, interior: generateInterior, world: generateWorld };
 
 export function isLocalKey(key) {
     return Object.prototype.hasOwnProperty.call(TYPE_BY_KEY, key);

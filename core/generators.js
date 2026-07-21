@@ -96,6 +96,19 @@ export const GENERATORS = {
             { k: 'settlements', type: 'select', opts: ['few', 'some', 'many'], def: 'some', i18n: 'p_settlements' },
         ],
     },
+    lworld: {
+        key: 'lworld', label: 'World (local)', embed: 'local', base: '',
+        seedable: true, params: [],
+        paramSchema: [
+            { k: 'continents', type: 'select', opts: ['pangea', 'continents', 'archipelago', 'shattered'], def: 'continents', i18n: 'p_continents' },
+            { k: 'seas', type: 'range', min: 0.4, max: 0.8, step: 0.05, def: 0.6, i18n: 'p_seas' },
+            { k: 'size', type: 'select', opts: ['small', 'medium', 'large'], def: 'medium', i18n: 'p_size' },
+            { k: 'climate', type: 'select', opts: ['iceage', 'temperate', 'hot'], def: 'temperate', i18n: 'p_climate' },
+            { k: 'nations', type: 'select', opts: ['few', 'some', 'many'], def: 'some', i18n: 'p_nations' },
+            { k: 'age', type: 'select', opts: ['young', 'ancient'], def: 'young', i18n: 'p_age' },
+            { k: 'rivers', type: 'select', opts: ['dry', 'normal', 'wet'], def: 'normal', i18n: 'p_rivers' },
+        ],
+    },
     ltown: {
         key: 'ltown', label: 'Town / Village (local)', embed: 'local', base: '',
         seedable: true, params: [],

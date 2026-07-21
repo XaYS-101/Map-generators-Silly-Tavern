@@ -10,6 +10,25 @@ import { t } from '../core/i18n.js';
 import { getSettings, toast } from '../core/settings.js';
 import { newId } from '../core/store.js';
 
+/** Build a fresh saved-map object for a local (procgen) generator, with the
+ *  auto title / thumbnail / description all derived from the model. Shared by
+ *  the local generator popup and the world→region zoom picker. */
+function buildLocalMapObject(generatorKey, seed, params) {
+    const def = GENERATORS[generatorKey];
+    const probe = { generator: generatorKey, seed, params };
+    return {
+        id: newId(),
+        generator: generatorKey,
+        title: Local.mapName(probe) || `${def?.label || generatorKey} ${seed}`,
+        url: '', seed, params,
+        thumbnail: Local.getThumbDataUrl(probe),
+        description: Local.describeMap(probe),
+        descSource: 'local',
+        localVersion: 1,
+        memory: { mode: 'none', lorebook: null, entryUid: null, depth: getSettings().defaultDepth },
+    };
+}
+
 /* ------------------------------------------------------------------
  *  Local generator popup (canvas preview, no iframe)
  * ------------------------------------------------------------------ */
@@ -131,17 +150,7 @@ async function openLocalGeneratorPopup(generatorKey, existingMap = null) {
         }
         return existingMap;
     }
-    return {
-        id: newId(),
-        generator: generatorKey,
-        title: Local.mapName(probe) || `${def.label} ${seed}`,
-        url: '', seed, params,
-        thumbnail: Local.getThumbDataUrl(probe),
-        description: Local.describeMap(probe),
-        descSource: 'local',
-        localVersion: 1,
-        memory: { mode: 'none', lorebook: null, entryUid: null, depth: getSettings().defaultDepth },
-    };
+    return buildLocalMapObject(generatorKey, seed, params);
 }
 
 /* ------------------------------------------------------------------
@@ -304,4 +313,61 @@ export async function openLocalLightbox(map) {
     await callGenericPopup($box, POPUP_TYPE.TEXT, '', {
         wide: true, large: true, wider: true, allowVerticalScrolling: true, okButton: 'Close',
     });
+}
+
+/* ------------------------------------------------------------------
+ *  World → region zoom picker
+ *
+ *  Shows the world map full-width; clicking a spot derives a Region
+ *  (local) map for that world cell and returns it as a NEW saved-map
+ *  object (the caller pushes it into the chat library). Returns null
+ *  if the popup is dismissed without a pick.
+ * ------------------------------------------------------------------ */
+export async function openWorldZoomPicker(worldMap) {
+    const model = Local.buildModel(worldMap);
+    const canvas = Local.getRenderCanvas(worldMap);
+    const src = Local.getRenderDataUrl(worldMap);
+    const N = model?.layers?.N;
+    if (!model || !canvas || !src || !N) return null;
+
+    // Mirror render.js canvasDims for the 'world' type so a click maps to a
+    // grid cell: cell = floor((canvasX − ox) / s), clamped to [0, N−1].
+    const s = Math.max(2, Math.round(900 / N));
+    const ox = 44, oy = 44;
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+    let chosen = null;
+
+    const $wrap = $('<div class="mg-zoompick"></div>');
+    $wrap.append($(`<p class="mg-zoomhint">${t('zoom_hint')}</p>`));
+    const $img = $('<img class="mg-zoom-img" alt="world map" style="width:100%;cursor:crosshair;" />').attr('src', src);
+    $wrap.append($img);
+
+    $img.on('click', async (ev) => {
+        // Account for CSS scaling: the displayed width may differ from the
+        // canvas's intrinsic pixel width.
+        const el = ev.currentTarget;
+        const rect = el.getBoundingClientRect();
+        const offsetX = ev.clientX - rect.left;
+        const offsetY = ev.clientY - rect.top;
+        const canvasX = offsetX * (canvas.width / rect.width);
+        const canvasY = offsetY * (canvas.height / rect.height);
+        const wx = clamp(Math.floor((canvasX - ox) / s), 0, N - 1);
+        const wy = clamp(Math.floor((canvasY - oy) / s), 0, N - 1);
+        try {
+            const { deriveRegionParams } = await import('../procgen/world/zoom.js');
+            const { seed, params } = deriveRegionParams(model, wx, wy);
+            chosen = buildLocalMapObject('lregion', seed, params);
+        } catch (e) {
+            console.error('[MapGenerators] world→region zoom failed', e);
+            return;
+        }
+        // Close the popup (single Close button); the picked map is returned below.
+        el.closest('dialog')?.querySelector('.popup-button-ok')?.click();
+    });
+
+    await callGenericPopup($wrap, POPUP_TYPE.TEXT, '', {
+        wide: true, large: true, wider: true, allowVerticalScrolling: true, okButton: 'Close',
+    });
+    return chosen;
 }
