@@ -79,3 +79,57 @@ export function polylineIntersect(aPts, bPts) {
     }
     return null;
 }
+
+/** ALL intersections of a polyline with another, in a-order.
+ *  Returns [{ x, y, ai, bi }, ...] — used for bridges (road × river). */
+export function polylineIntersectAll(aPts, bPts) {
+    const hits = [];
+    for (let i = 1; i < aPts.length; i++) {
+        for (let j = 1; j < bPts.length; j++) {
+            const hit = segIntersect(aPts[i - 1], aPts[i], bPts[j - 1], bPts[j]);
+            if (hit) hits.push({ x: hit[0], y: hit[1], ai: i, bi: j });
+        }
+    }
+    return hits;
+}
+
+/** Wrap an angle into (-PI, PI]. */
+export function wrapPi(a) {
+    a = (a + Math.PI) % (Math.PI * 2);
+    if (a <= 0) a += Math.PI * 2;
+    return a - Math.PI;
+}
+
+/** Shortest-arc interpolation from a toward b by fraction t. */
+export function lerpAngle(a, b, t) {
+    return a + wrapPi(b - a) * t;
+}
+
+/** Index of the segment of `pts` nearest to (x, y). */
+export function nearestSegIndex(x, y, pts) {
+    let best = Infinity, bi = 1;
+    for (let i = 1; i < pts.length; i++) {
+        const d = segPointDist(x, y, { x1: pts[i - 1][0], y1: pts[i - 1][1], x2: pts[i][0], y2: pts[i][1] });
+        if (d < best) { best = d; bi = i; }
+    }
+    return bi;
+}
+
+/** Tangent (heading) of the nearest segment of a single polyline. */
+export function polylineTangent(x, y, pts) {
+    const i = nearestSegIndex(x, y, pts);
+    return Math.atan2(pts[i][1] - pts[i - 1][1], pts[i][0] - pts[i - 1][0]);
+}
+
+/** Tangent of the NEAREST contour polyline among `contours` (array of
+ *  point lists), oriented to best match `ref` heading. */
+export function contourTangent(x, y, contours, ref) {
+    let best = Infinity, tan = ref;
+    for (const c of contours) {
+        const i = nearestSegIndex(x, y, c);
+        const d = segPointDist(x, y, { x1: c[i - 1][0], y1: c[i - 1][1], x2: c[i][0], y2: c[i][1] });
+        if (d < best) { best = d; tan = Math.atan2(c[i][1] - c[i - 1][1], c[i][0] - c[i - 1][0]); }
+    }
+    if (Math.abs(wrapPi(tan - ref)) > Math.PI / 2) tan += Math.PI;   // align with travel
+    return tan;
+}
