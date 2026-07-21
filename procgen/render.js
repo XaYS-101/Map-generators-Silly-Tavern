@@ -21,8 +21,28 @@ function canvasDims(model) {
             return { w: w * ts + m * 2, h: h * ts + m * 2 + 24, view: { s: ts, ox: m, oy: m + 24 } };
         }
         case 'interior': {
-            const ts = 34, m = 48;
-            return { w: w * ts + m * 2, h: h * ts + m * 2 + 24, view: { s: ts, ox: m, oy: m + 24 } };
+            // multi-floor plans render side by side; legacy single-floor
+            // models synthesize one Ground floor and keep the old layout.
+            const floors = (model.layers?.floors?.length)
+                ? [...model.layers.floors].sort((a, b) => a.level - b.level)
+                : [{ level: 0, w, h }];
+            const m = 48, gap = 24;
+            const totalUnits = floors.reduce((a, f) => a + (f.w || w), 0);
+            let ts = 34;
+            let width = m * 2 + totalUnits * ts + gap * (floors.length - 1);
+            if (width > 1400) { ts = 26; width = m * 2 + totalUnits * ts + gap * (floors.length - 1); }
+            const maxH = Math.max(...floors.map(f => f.h || h));
+            const oyTop = m + 24;
+            const floorOrigins = [];
+            let cursor = m;
+            for (const f of floors) {
+                floorOrigins.push({ level: f.level, ox: cursor, oy: oyTop });
+                cursor += (f.w || w) * ts + gap;
+            }
+            return {
+                w: width, h: maxH * ts + m * 2 + 24,
+                view: { s: ts, ox: m, oy: oyTop, floorOrigins },
+            };
         }
         case 'region': {
             // scale adapts to map size N so canvases stay ~700–900 px

@@ -385,85 +385,196 @@ function drawContentIcon(ctx, kind, gx, gy, s, ink) {
  *  window ticks, room labels.
  * ------------------------------------------------------------------ */
 export function drawInterior(ctx, model, rng, h, view) {
-    const { s, ox, oy } = view;
-    const px = (x, y) => [ox + x * s, oy + y * s];
-    const rooms = model.entities.filter(e => e.kind === 'room');
+    const { s } = view;
 
-    // floors
-    for (const r of rooms) {
-        ctx.fillStyle = '#f0e7d0';
-        ctx.fillRect(ox + r.x * s, oy + r.y * s, r.w * s, r.h * s);
-    }
-    // faint plank lines in the hub
-    const hub = rooms[0];
-    if (hub) {
-        ctx.strokeStyle = 'rgba(120,95,55,0.12)';
+    // Floors: new models carry layers.floors; legacy single-floor models
+    // (layers.grid, no floors array) synthesize one Ground floor so they
+    // keep rendering unchanged.
+    const floors = (model.layers?.floors?.length)
+        ? [...model.layers.floors].sort((a, b) => a.level - b.level)
+        : [{
+            level: 0, label: 'Ground floor',
+            grid: model.layers?.grid, outline: model.layers?.outline,
+            cut: model.layers?.cut, w: model.size?.w, h: model.size?.h,
+        }];
+    const origins = (view.floorOrigins && view.floorOrigins.length)
+        ? view.floorOrigins
+        : [{ level: floors[0].level, ox: view.ox, oy: view.oy }];
+    const originFor = lvl => origins.find(o => o.level === lvl) || origins[0] || { ox: view.ox, oy: view.oy };
+
+    // Plan-hub room purposes (get faint plank lines when untagged).
+    const HUB_PURPOSES = new Set([
+        'common room', 'hearth room', 'shopfront', 'nave', 'grand hall', 'great hall',
+        'forge', 'mess hall', 'loading bay', 'mill room',
+    ]);
+    const condition = model.params?.condition;
+    const lvlOf = e => (e.level ?? 0);
+
+    // ---- small local glyph helpers (all jitter via the style rng) ----
+    const swingArc = (cx, cy, orient) => {
+        ctx.strokeStyle = h.INK;
+        ctx.globalAlpha = 0.55;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        for (let y = hub.y + 1; y < hub.y + hub.h; y++) {
-            const [ax, ay] = px(hub.x + 0.2, y);
-            const [bx] = px(hub.x + hub.w - 0.2, y);
-            ctx.moveTo(ax, ay); ctx.lineTo(bx, ay);
+        ctx.arc(cx, cy, s * 0.7, 0, Math.PI / 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+    };
+    const padlock = (cx, cy) => {
+        ctx.fillStyle = h.INK;
+        ctx.fillRect(cx - 2.5, cy - 0.5, 5, 4);          // body
+        ctx.strokeStyle = h.INK;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy - 0.5, 2, Math.PI, 0);            // shackle
+        ctx.stroke();
+    };
+    const brokenLeaf = (dx, dy) => {
+        const len = s * 0.6, a = Math.PI / 4;
+        const ex = dx + Math.cos(a) * len, ey = dy + Math.sin(a) * len;
+        h.inkLine([[dx, dy], [ex, ey]], { width: 1.6, wobble: 0.5, passes: 1 });
+        // splinter ticks near the hinge
+        for (const t of [0.3, 0.6]) {
+            const mx = dx + (ex - dx) * t, my = dy + (ey - dy) * t;
+            h.inkLine([[mx - 2, my + 2], [mx + 2, my - 2]], { width: 0.8, wobble: 0.3, alpha: 0.7, passes: 1 });
+        }
+    };
+    const stairGlyph = (bx, by, up) => {
+        // 4 nested, shortening treads pointing up/down + a direction triangle
+        const steps = 4;
+        ctx.strokeStyle = h.INK;
+        ctx.lineWidth = 1.1;
+        for (let i = 0; i < steps; i++) {
+            const frac = up ? (1 - 0.6 * i / steps) : (0.4 + 0.6 * i / steps);
+            const wHalf = s * 0.32 * frac;
+            const cx = bx + s * 0.5;
+            const yy = by + s * (0.22 + 0.56 * i / steps);
+            ctx.strokeRect(cx - wHalf, yy, wHalf * 2, s * 0.56 / steps);
+        }
+        ctx.fillStyle = h.INK;
+        const tx = bx + s * 0.5;
+        ctx.beginPath();
+        if (up) { const ty = by + s * 0.12; ctx.moveTo(tx, ty); ctx.lineTo(tx - 3, ty + 5); ctx.lineTo(tx + 3, ty + 5); }
+        else { const ty = by + s * 0.9; ctx.moveTo(tx, ty); ctx.lineTo(tx - 3, ty - 5); ctx.lineTo(tx + 3, ty - 5); }
+        ctx.closePath();
+        ctx.fill();
+    };
+
+    for (const f of floors) {
+        const o = originFor(f.level);
+        const fox = o.ox, foy = o.oy;
+        const px = (x, y) => [fox + x * s, foy + y * s];
+        const fw = f.w ?? model.size?.w ?? 0, fh = f.h ?? model.size?.h ?? 0;
+
+        // caption above the floor
+        h.label(f.label || 'Floor', fox + (fw * s) / 2, foy - 8, { size: 13, italic: false, weight: '600' });
+
+        const frooms = model.entities.filter(e => e.kind === 'room' && lvlOf(e) === f.level);
+
+        // 1) floor fills; courtyard rooms get an open-air tone + sparse hatch
+        for (const r of frooms) {
+            const court = r.tags?.includes('courtyard');
+            ctx.fillStyle = court ? '#e8eccb' : '#f0e7d0';
+            ctx.fillRect(fox + r.x * s, foy + r.y * s, r.w * s, r.h * s);
+            if (court) {
+                const poly = [px(r.x, r.y), px(r.x + r.w, r.y), px(r.x + r.w, r.y + r.h), px(r.x, r.y + r.h)];
+                h.hatchPoly(poly, { spacing: 12, alpha: 0.16, angle: Math.PI / 4 });
+            }
+        }
+
+        // 2) plank lines for the hub (tagged entrance, else plan-hub purpose,
+        //    else first room) — never for a courtyard (open air)
+        let hub = frooms.find(r => r.tags?.includes('entrance'));
+        if (!hub) hub = frooms.find(r => HUB_PURPOSES.has(r.purpose));
+        if (!hub) hub = frooms[0];
+        if (hub && !hub.tags?.includes('courtyard')) {
+            ctx.strokeStyle = 'rgba(120,95,55,0.12)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (let y = hub.y + 1; y < hub.y + hub.h; y++) {
+                const [ax, ay] = px(hub.x + 0.2, y);
+                const [bx] = px(hub.x + hub.w - 0.2, y);
+                ctx.moveTo(ax, ay); ctx.lineTo(bx, ay);
+            }
+            ctx.stroke();
+        }
+
+        // 3) interior walls + heavy per-floor outer outline
+        for (const r of frooms) {
+            h.inkRect(fox + r.x * s, foy + r.y * s, r.w * s, r.h * s, { width: 1.6, wobble: 0.6, overshoot: 1 });
+        }
+        const outline = (f.outline || []).map(([x, y]) => px(x, y));
+        if (outline.length) h.inkPoly(outline, { width: 3.6, wobble: 0.8 });
+
+        // 4) doors: parchment gap + swing arc (or padlock / broken leaf)
+        let fdoors = model.entities.filter(e => e.kind === 'door' && lvlOf(e) === f.level);
+        if (!fdoors.length) fdoors = (model.layers?.doors || []).filter(d => (d.level ?? 0) === f.level);
+        const orientOf = d => d.orient || (d.tags?.includes('v') ? 'v' : 'h');
+        // looted: mark 1-2 doors on this floor as forced/broken
+        const broken = new Set();
+        if (condition === 'looted' && fdoors.length) {
+            const k = Math.min(2, fdoors.length);
+            for (const i of rng.shuffle(fdoors.map((_, i) => i)).slice(0, k)) broken.add(i);
+        }
+        fdoors.forEach((d, i) => {
+            const orient = orientOf(d);
+            const [dx, dy] = px(d.x, d.y);
+            ctx.fillStyle = '#f0e7d0';
+            const gapCx = orient === 'v' ? dx : dx + s * 0.15;
+            const gapCy = orient === 'v' ? dy + s * 0.15 : dy;
+            if (orient === 'v') ctx.fillRect(dx - 3, dy + s * 0.15, 6, s * 0.7);
+            else ctx.fillRect(dx + s * 0.15, dy - 3, s * 0.7, 6);
+            if (broken.has(i)) { brokenLeaf(gapCx, gapCy); return; }
+            if (d.locked) { padlock(orient === 'v' ? dx + 6 : dx + s * 0.5, orient === 'v' ? dy + s * 0.5 : dy - 6); return; }
+            swingArc(gapCx, gapCy, orient);
+        });
+
+        // 5) windows: thin double ticks across exterior walls
+        ctx.strokeStyle = h.INK;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        for (const w of model.entities.filter(e => e.kind === 'window' && lvlOf(e) === f.level)) {
+            const [wx, wy] = px(w.x, w.y);
+            if (w.tags?.includes('h')) {
+                ctx.moveTo(wx + s * 0.2, wy - 2); ctx.lineTo(wx + s * 0.8, wy - 2);
+                ctx.moveTo(wx + s * 0.2, wy + 2); ctx.lineTo(wx + s * 0.8, wy + 2);
+            } else {
+                ctx.moveTo(wx - 2, wy + s * 0.2); ctx.lineTo(wx - 2, wy + s * 0.8);
+                ctx.moveTo(wx + 2, wy + s * 0.2); ctx.lineTo(wx + 2, wy + s * 0.8);
+            }
         }
         ctx.stroke();
-    }
+        ctx.globalAlpha = 1;
 
-    // interior walls then the heavy outer outline
-    for (const r of rooms) {
-        h.inkRect(ox + r.x * s, oy + r.y * s, r.w * s, r.h * s, { width: 1.6, wobble: 0.6, overshoot: 1 });
-    }
-    const outline = (model.layers.outline || []).map(([x, y]) => px(x, y));
-    if (outline.length) h.inkPoly(outline, { width: 3.6, wobble: 0.8 });
-
-    // doors: parchment gap + swing arc
-    for (const d of (model.layers.doors || [])) {
-        const [dx, dy] = px(d.x, d.y);
-        ctx.fillStyle = '#f0e7d0';
-        if (d.orient === 'v') {
-            ctx.fillRect(dx - 3, dy + s * 0.15, 6, s * 0.7);
-            ctx.strokeStyle = h.INK;
-            ctx.globalAlpha = 0.55;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.arc(dx, dy + s * 0.15, s * 0.7, 0, Math.PI / 2);
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-        } else {
-            ctx.fillRect(dx + s * 0.15, dy - 3, s * 0.7, 6);
-            ctx.strokeStyle = h.INK;
-            ctx.globalAlpha = 0.55;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.arc(dx + s * 0.15, dy, s * 0.7, 0, Math.PI / 2);
-            ctx.stroke();
-            ctx.globalAlpha = 1;
+        // 6) stairs: nested shortening steps + direction triangle
+        for (const st of model.entities.filter(e => e.kind === 'stair' && lvlOf(e) === f.level)) {
+            const up = (st.to != null) ? st.to > f.level : true;
+            const [bx, by] = px(st.x, st.y);
+            stairGlyph(bx, by, up);
         }
-    }
 
-    // windows: thin double ticks across exterior walls
-    ctx.strokeStyle = h.INK;
-    ctx.lineWidth = 1;
-    ctx.globalAlpha = 0.6;
-    ctx.beginPath();
-    for (const w of model.entities.filter(e => e.kind === 'window')) {
-        const [wx, wy] = px(w.x, w.y);
-        if (w.tags?.includes('h')) {
-            ctx.moveTo(wx + s * 0.2, wy - 2); ctx.lineTo(wx + s * 0.8, wy - 2);
-            ctx.moveTo(wx + s * 0.2, wy + 2); ctx.lineTo(wx + s * 0.8, wy + 2);
-        } else {
-            ctx.moveTo(wx - 2, wy + s * 0.2); ctx.lineTo(wx - 2, wy + s * 0.8);
-            ctx.moveTo(wx + 2, wy + s * 0.2); ctx.lineTo(wx + 2, wy + s * 0.8);
+        // 7) abandoned: sparse dust speckle inside the rooms
+        if (condition === 'abandoned' && frooms.length) {
+            ctx.fillStyle = 'rgba(90,80,60,0.16)';
+            const specks = Math.round(fw * fh * 0.12);
+            for (let i = 0; i < specks; i++) {
+                const gx = rng.float(0, fw), gy = rng.float(0, fh);
+                if (!frooms.some(r => gx >= r.x && gx < r.x + r.w && gy >= r.y && gy < r.y + r.h)) continue;
+                const [dx, dy] = px(gx, gy);
+                ctx.beginPath();
+                ctx.arc(dx, dy, rng.float(0.5, 1.3), 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
-    }
-    ctx.stroke();
-    ctx.globalAlpha = 1;
 
-    // labels: "N. Name"
-    for (const r of rooms) {
-        const [cx, cy] = px(r.x + r.w / 2, r.y + r.h / 2);
-        const n = idNum(r.id);
-        if (!h.label(`${n}. ${r.name}`, cx, cy, { size: 12 })) {
-            h.label(String(n), cx, cy, { size: 12, italic: false, weight: '600' });
+        // 8) labels: "N. Name"
+        for (const r of frooms) {
+            const [cx, cy] = px(r.x + r.w / 2, r.y + r.h / 2);
+            const n = idNum(r.id);
+            if (!h.label(`${n}. ${r.name}`, cx, cy, { size: 12 })) {
+                h.label(String(n), cx, cy, { size: 12, italic: false, weight: '600' });
+            }
         }
     }
 }
