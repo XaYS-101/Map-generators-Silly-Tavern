@@ -183,12 +183,30 @@ function describeInterior(model) {
 /* ------------------------------------------------------------------
  *  Region
  * ------------------------------------------------------------------ */
+/** Widest point of a river (for ranking); tolerates 2-tuple pts. */
+function riverSize(r) {
+    let mw = 0;
+    for (const p of r.pts) if (p.length > 2 && p[2] > mw) mw = p[2];
+    return mw || r.pts.length;
+}
+
+const CLIMATE_CLAUSE = { cold: 'a cold northern land', hot: 'a hot southern land' };
+const FLAVOR_SENTENCE = {
+    wasteland: 'Much of it is parched wasteland.',
+    volcanic: 'Volcanic activity scars the land with ash and cinders.',
+    blighted: 'A creeping blight corrupts the wilds.',
+};
+
 function describeRegion(model) {
     const ents = model.entities;
     const settlements = ents.filter(e => e.kind === 'settlement');
     const pois = ents.filter(e => e.kind === 'poi');
     const rivers = ents.filter(e => e.kind === 'river');
+    const lakes = ents.filter(e => e.kind === 'lake');
+    const bridges = ents.filter(e => e.kind === 'bridge');
     const biomes = ents.filter(e => e.kind === 'biome');
+    const riverById = new Map(rivers.map(r => [r.id, r]));
+    const lakeById = new Map(lakes.map(l => [l.id, l]));
     const KM_PER_CELL = model.layers?.cellKm ?? 1.5;
     const KM_PER_DAY = 30;
 
@@ -196,7 +214,12 @@ function describeRegion(model) {
     lines.push(`== ${model.name} (region map, seed "${model.seed}") ==`);
     const mask = model.params.mask || 'island';
     const landTxt = { island: 'An island landmass surrounded by open sea', coast: 'A coastal region', inland: 'An inland region' }[mask] || 'A region';
-    let ov = `Overview: ${landTxt}, roughly ${Math.round(model.size.w * KM_PER_CELL)}x${Math.round(model.size.h * KM_PER_CELL)} km.`;
+    let ov = `Overview: ${landTxt}`;
+    const climateClause = CLIMATE_CLAUSE[model.params.climate];
+    if (climateClause) ov += `, ${climateClause}`;
+    ov += `, roughly ${Math.round(model.size.w * KM_PER_CELL)}x${Math.round(model.size.h * KM_PER_CELL)} km.`;
+    const flavorSentence = FLAVOR_SENTENCE[model.params.flavor];
+    if (flavorSentence) ov += ` ${flavorSentence}`;
     const named = biomes.filter(b => b.name).slice(0, 5);
     if (named.length) {
         ov += ` Notable features: ${named.map(b => `${b.name} (${BIOME_LABELS[b.purpose] || b.purpose}) in the ${placeDir(model, b.x, b.y)}`).join('; ')}.`;
@@ -231,23 +254,82 @@ function describeRegion(model) {
     }
 
     if (rivers.length) {
+        // named rivers first, then the largest unnamed ones
+        const namedRivers = rivers.filter(r => r.name);
+        const unnamedRivers = rivers.filter(r => !r.name).sort((a, b) => riverSize(b) - riverSize(a));
+        const riverList = [...namedRivers, ...unnamedRivers].slice(0, 5);
         lines.push('', 'Rivers:');
-        for (const r of rivers.slice(0, 4)) {
+        for (const r of riverList) {
             const a = r.pts[0], b = r.pts[r.pts.length - 1];
-            lines.push(`- ${r.name || 'A river'} rises in the ${placeDir(model, a[0], a[1])} and flows ${DIR_WORDS[compass(a[0], a[1], b[0], b[1])]} ${r.tags?.includes('to-sea') ? 'into the sea' : 'into the lowlands'}.`);
+            const tags = r.tags || [];
+            let end;
+            if (tags.includes('to-sea')) {
+                if (tags.includes('delta')) end = 'reaches the sea in a broad delta';
+                else if (tags.includes('estuary')) end = 'meets the sea in a wide estuary';
+                else end = `flows ${DIR_WORDS[compass(a[0], a[1], b[0], b[1])]} into the sea`;
+            } else {
+                const toLake = tags.find(t => t.startsWith('to-lake:'));
+                const trib = tags.find(t => t.startsWith('tributary:'));
+                if (toLake && lakeById.has(toLake.slice(8))) {
+                    end = `empties into ${lakeById.get(toLake.slice(8)).name || 'a lake'}`;
+                } else if (trib) {
+                    const parent = riverById.get(trib.slice(10));
+                    end = parent && parent.name ? `joins ${parent.name}` : 'joins a larger river';
+                } else {
+                    end = `flows ${DIR_WORDS[compass(a[0], a[1], b[0], b[1])]} into the lowlands`;
+                }
+            }
+            let line = `- ${r.name ? capital(r.name) : 'A river'} rises in the ${placeDir(model, a[0], a[1])} and ${end}`;
+            if (r.name) {
+                const n = rivers.filter(o => o.tags?.includes('tributary:' + r.id)).length;
+                if (n > 0) line += `, fed by ${n} tributar${n > 1 ? 'ies' : 'y'}`;
+            }
+            lines.push(line + '.');
         }
     }
 
-    const roads = model.edges.filter(e => e.kind === 'road');
-    if (roads.length) {
+    if (lakes.length) {
+        const namedLakes = lakes.filter(l => l.name);
+        const unnamedLakes = lakes.filter(l => !l.name).sort((a, b) => (b.w || 0) - (a.w || 0)).slice(0, 2);
+        const lakeList = [...namedLakes, ...unnamedLakes].slice(0, 4);
+        if (lakeList.length) {
+            lines.push('', 'Lakes:');
+            for (const l of lakeList) {
+                let line = `- ${l.name || 'A mountain lake'}, in the ${placeDir(model, l.x, l.y)}`;
+                const feeder = rivers.find(r => r.name && r.tags?.includes('to-lake:' + l.id));
+                if (feeder) line += `, fed by ${feeder.name}`;
+                lines.push(line + '.');
+            }
+        }
+    }
+
+    const roadEdges = model.edges.filter(e => e.kind === 'road');
+    if (roadEdges.length) {
         const byId = new Map(settlements.map(s => [s.id, s]));
-        const roadTxt = roads.slice(0, 6)
-            .map(e => {
-                const a = byId.get(e.a), b = byId.get(e.b);
-                return (a && b) ? `${a.name}–${b.name}` : null;
-            })
-            .filter(Boolean);
-        if (roadTxt.length) lines.push('', `Roads connect: ${roadTxt.join(', ')}.`);
+        const roadLines = [];
+        // k-th road edge ⇒ entity 'rd'+(k+1); bridges reference that id
+        for (let k = 0; k < roadEdges.length && roadLines.length < 6; k++) {
+            const e = roadEdges[k];
+            const a = byId.get(e.a), b = byId.get(e.b);
+            if (!a || !b) continue;
+            const brs = bridges.filter(br => br.road === 'rd' + (k + 1));
+            let clause = '';
+            if (brs.length === 1) {
+                const br = brs[0];
+                const riv = br.river ? riverById.get(br.river) : null;
+                const cross = riv && riv.name ? riv.name : 'the river';
+                clause = `, crossing ${cross} by ${br.purpose === 'ford' ? 'a shallow ford' : 'a stone bridge'}`;
+            } else if (brs.length > 1) {
+                const fords = brs.filter(br => br.purpose === 'ford').length;
+                const stone = brs.length - fords;
+                const parts = [];
+                if (stone > 0) parts.push(`${stone} bridge${stone > 1 ? 's' : ''}`);
+                if (fords > 0) parts.push(`${fords} ford${fords > 1 ? 's' : ''}`);
+                clause = `, crossing rivers by ${parts.join(' and ')}`;
+            }
+            roadLines.push(`- ${a.name}–${b.name}${clause}.`);
+        }
+        if (roadLines.length) lines.push('', 'Roads:', ...roadLines);
     }
 
     return { prose: lines.join('\n'), ascii: null, json: compactJson(model) };
