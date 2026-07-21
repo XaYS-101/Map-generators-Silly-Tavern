@@ -159,6 +159,7 @@ export const BIOME_LABELS = {
     desert: 'dry steppe', swamp: 'swamp', mountains: 'mountains', snow: 'snowbound peaks',
     taiga: 'pine forest', tundra: 'frozen tundra', savanna: 'savanna',
     badlands: 'badlands', ashland: 'volcanic ashland', blight: 'blighted waste',
+    iceshelf: 'pack ice',
 };
 
 const BIOME_NAME_SUFFIX = {
@@ -221,3 +222,116 @@ export const REGION_POI = {
     savanna: ['watering hole', 'termite spires', 'hunting ground'],
     default: POI_KINDS,
 };
+
+/* ------------------------------------------------------------------
+ *  World layer: nations, wonders, and planetary hydronyms/toponyms.
+ *
+ *  APPENDED — the tables above are untouched, so region seeds and the
+ *  region test snapshots keep producing identical output. Every helper
+ *  is a pure function of its Rng; the world generator draws them in a
+ *  single fixed NAMES order (see gen-world.js).
+ * ------------------------------------------------------------------ */
+
+/** Per-flavor adjectives + government forms; enrich freely. */
+export const NATION_FLAVORS = {
+    maritime: { adj: ['Tidal', 'Coral', 'Pearl', 'Azure', 'Saffron', 'Salt'], gov: ['Republic', 'Thalassocracy', 'League', 'Free Cities'] },
+    steppe: { adj: ['Golden', 'Iron', 'Storm', 'Wind', 'Red'], gov: ['Khanate', 'Horde', 'Khaganate'] },
+    forest: { adj: ['Green', 'Elder', 'Silver', 'Thorn', 'Wolf'], gov: ['Kingdom', 'Principality', 'Duchy'] },
+    desert: { adj: ['Scarlet', 'Amber', 'Sun', 'Bronze', 'Gilded'], gov: ['Caliphate', 'Sultanate', 'Emirate'] },
+    mountain: { adj: ['Grey', 'High', 'Stone', 'Iron', 'Deep'], gov: ['Holds', 'Clans', 'Under-Kingdom'] },
+    fen: { adj: ['Pale', 'Mist', 'Reed', 'Grey', 'Bog'], gov: ['Marshland', 'Covenant'] },
+    jungle: { adj: ['Verdant', 'Jade', 'Emerald', 'Feathered'], gov: ['Empire', 'Temple-Realm'] },
+    ashen: { adj: ['Ashen', 'Cinder', 'Ember', 'Black'], gov: ['Dominion', 'Ash Court'] },
+};
+
+const NATION_END = ['ia', 'or', 'and', 'mark', 'gard', 'esh', 'oria', 'wen'];
+
+/** Nation name, e.g. "Keloria" or "the Golden Vinmark". */
+export function nationName(rng, flavor) {
+    const base = word(rng, { midChance: 0.5, end: NATION_END });
+    const f = NATION_FLAVORS[flavor];
+    if (f && f.adj && rng.chance(0.4)) return `${rng.pick(f.adj)} ${base}`;
+    return base;
+}
+
+/** Government form keyed to the nation flavor. */
+export function governmentFor(rng, flavor) {
+    const f = NATION_FLAVORS[flavor] || NATION_FLAVORS.forest;
+    return rng.pick(f.gov);
+}
+
+/** Biome-keyed dramatic world wonders (the strings ARE the names). */
+export const WORLD_WONDERS = {
+    mountains: ['the Shattered Spire', 'the Sky Anvil'],
+    snow: ['the Shattered Spire', 'the Sky Anvil'],
+    desert: ['the Sea of Glass', 'the Singing Dunes'],
+    badlands: ['the Sea of Glass', 'the Singing Dunes'],
+    forest: ['the Worldtree', 'the Verdant Maw'],
+    rainforest: ['the Worldtree', 'the Verdant Maw'],
+    ocean: ['the Maelstrom', 'the Drowned Bell'],
+    beach: ['the Maelstrom', 'the Drowned Bell'],
+    ashland: ['the Ashen Throne'],
+    blight: ['the Weeping Scar'],
+    tundra: ['the Frozen Titan'],
+    taiga: ['the Frozen Titan'],
+    swamp: ['the Sunken Cathedral'],
+    default: ['the Standing Gods'],
+};
+
+const WONDER_ADJ = ['Pale', 'Broken', 'Weeping', 'Silent', 'Burning', 'Sunken', 'Hollow', 'Riven'];
+const WONDER_NOUN = ['Spire', 'Throne', 'Titan', 'Bell', 'Crown', 'Maw', 'Sepulchre', 'Colossus'];
+
+/** Wonder name: usually a fixed evocative string, sometimes a generated
+ *  variant. Pass a Set as `used` to guarantee uniqueness within one world. */
+export function wonderName(rng, biome, used = null) {
+    const pool = WORLD_WONDERS[biome] || WORLD_WONDERS.default;
+    let name = rng.chance(0.65) ? rng.pick(pool) : `the ${rng.pick(WONDER_ADJ)} ${rng.pick(WONDER_NOUN)}`;
+    if (used) {
+        for (let guard = 0; guard < 8 && used.has(name); guard++) {
+            name = `the ${rng.pick(WONDER_ADJ)} ${rng.pick(WONDER_NOUN)}`;
+        }
+        used.add(name);
+    }
+    return name;
+}
+
+const SEA_ADJ = ['Shivering', 'Sundered', 'Ashen', 'Whispering', 'Iron', 'Jade', 'Silent', 'Sapphire'];
+/** Sea name, e.g. "the Jade Sea" or "the Sea of Bel". */
+export function seaName(rng) {
+    return rng.chance(0.45)
+        ? `the ${rng.pick(SEA_ADJ)} Sea`
+        : `the Sea of ${word(rng, { midChance: 0.3 }).replace(HYDRO_STRIP, '')}`;
+}
+
+const OCEAN_ADJ = ['Endless', 'Sunless', 'Boundless', 'Wandering', 'Titan', 'Deep'];
+/** Ocean name, e.g. "the Sunless Ocean" or "the Veloria Ocean". */
+export function oceanName(rng) {
+    return rng.chance(0.5)
+        ? `the ${rng.pick(OCEAN_ADJ)} Ocean`
+        : `the ${word(rng, { midChance: 0.4, end: WORLD_END })} Ocean`;
+}
+
+const CONTINENT_SUFFIX = ['Reaches', 'Expanse', 'Continent', 'Lands', 'Shelf'];
+/** Continent name, e.g. "Ostador" or "the Wynshaw Reaches". */
+export function continentName(rng) {
+    return rng.chance(0.5)
+        ? word(rng, { midChance: 0.6, end: WORLD_END })
+        : `the ${word(rng)} ${rng.pick(CONTINENT_SUFFIX)}`;
+}
+
+const EMPIRE_ADJ = ['First', 'Old', 'Sunken', 'Elder', 'Forgotten', 'Fallen'];
+const EMPIRE_SUFFIX = ['Imperium', 'Ascendancy', 'Dominion', 'Empire', 'Hegemony', 'Concord'];
+/** Fallen-empire name for ancient worlds, e.g. "the Sunken Imperium". */
+export function deadEmpireName(rng) {
+    return rng.chance(0.5)
+        ? `the ${word(rng, { midChance: 0.5, end: WORLD_END })} ${rng.pick(EMPIRE_SUFFIX)}`
+        : `the ${rng.pick(EMPIRE_ADJ)} ${rng.pick(EMPIRE_SUFFIX)}`;
+}
+
+const RUIN_SITE = ['the Broken Court', 'the Fallen Keep', 'the Sunken Vault', 'the Ashen Halls',
+    'the Silent Throne', 'the Ruined Spire', 'the Lost Bastion', 'the Weeping Gate', 'the Hollow Crown'];
+/** Ruin name tied to a dead empire, e.g. "the Broken Court of Elder Imperium". */
+export function ruinName(rng, empire) {
+    const site = rng.pick(RUIN_SITE);
+    return empire ? `${site} of ${String(empire).replace(/^the /, '')}` : site;
+}
