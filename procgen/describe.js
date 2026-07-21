@@ -22,6 +22,7 @@ export function describe(model) {
         case 'interior': return describeInterior(model);
         case 'region': return describeRegion(model);
         case 'town': return describeTown(model);
+        case 'world': return describeWorld(model);
         default: return { prose: model?.name || '', ascii: null, json: model ? compactJson(model) : '{}' };
     }
 }
@@ -382,6 +383,185 @@ function describeTown(model) {
     if (buildings.length) {
         lines.push('', `Besides these, some ${buildings.length} ordinary houses, shops and workshops line the streets.`);
     }
+
+    return { prose: lines.join('\n'), ascii: null, json: compactJson(model) };
+}
+
+/* ------------------------------------------------------------------
+ *  World (nations, continents, seas, trade — a political gazetteer)
+ * ------------------------------------------------------------------ */
+const WORLD_LANDMASS = {
+    pangea: 'a single vast supercontinent',
+    continents: 'several continents',
+    archipelago: 'scattered island chains',
+    shattered: 'a shattered sea of islands',
+};
+const WORLD_CLIMATE = { iceage: ', gripped by an ice age', hot: ', sweltering under a merciless sun' };
+const FLAVOR_WORDS = {
+    maritime: 'seafaring', steppe: 'horse-lord', forest: 'woodland', desert: 'desert',
+    mountain: 'mountain', fen: 'marsh', jungle: 'jungle', ashen: 'ash-born',
+};
+const REL_WORDS = { war: 'at war with', rivalry: 'rivals of', alliance: 'allied with', trade: 'trading with' };
+const REL_ORDER = ['war', 'rivalry', 'alliance', 'trade'];
+
+/** Relation clause for one nation, grouped by kind in a fixed order. */
+function relationClauses(model, nation, nationById) {
+    const byRel = { war: [], rivalry: [], alliance: [], trade: [] };
+    for (const e of model.edges) {
+        if (e.kind !== 'relation' || !byRel[e.rel]) continue;
+        const other = e.a === nation.id ? e.b : (e.b === nation.id ? e.a : null);
+        if (!other) continue;
+        const on = nationById.get(other);
+        if (on) byRel[e.rel].push(on.name);
+    }
+    const parts = [];
+    for (const rel of REL_ORDER) if (byRel[rel].length) parts.push(`${REL_WORDS[rel]} ${byRel[rel].join(', ')}`);
+    return parts.join('; ');
+}
+
+/** Resolve a route's two endpoint ids (capN/cK) to display names. */
+function routeEnds(r, nameById) {
+    return `${nameById.get(r.a) || r.a}–${nameById.get(r.b) || r.b}`;
+}
+
+/** Nearest nation whose centroid is within ~N/4 cells of (x,y), else null. */
+function nearestNation(model, x, y, nations) {
+    const thresh = Math.max(model.size?.w ?? 100, model.size?.h ?? 100) / 4;
+    let best = null, bd = Infinity;
+    for (const n of nations) {
+        const d = Math.hypot(n.x - x, n.y - y);
+        if (d < bd) { bd = d; best = n; }
+    }
+    return best && bd <= thresh ? best : null;
+}
+
+function describeWorld(model) {
+    const ents = model.entities || [];
+    const byKind = k => ents.filter(e => e.kind === k);
+    const continents = byKind('continent');
+    const seas = byKind('sea');
+    const nations = byKind('nation');
+    const capitals = byKind('capital');
+    const cities = byKind('city');
+    const rivers = byKind('river');
+    const lakes = byKind('lake');
+    const routes = byKind('route');
+    const wonders = byKind('wonder');
+    const ruins = byKind('ruin');
+    const p = model.params || {};
+    const KM_PER_CELL = model.layers?.cellKm ?? 40;
+
+    const nationById = new Map(nations.map(n => [n.id, n]));
+    const nameById = new Map();
+    for (const e of ents) if (e.id) nameById.set(e.id, e.name || e.id);
+    const capByNation = new Map();
+    for (const c of capitals) if (c.nation) capByNation.set(c.nation, c);
+    const citiesByNation = new Map();
+    for (const c of cities) {
+        if (!c.nation) continue;
+        if (!citiesByNation.has(c.nation)) citiesByNation.set(c.nation, []);
+        citiesByNation.get(c.nation).push(c);
+    }
+
+    const lines = [];
+    lines.push(`== ${model.name} (world map, seed "${model.seed}") ==`);
+
+    // Overview
+    let ov = 'Overview: ' + (p.age === 'ancient'
+        ? 'An ancient world scarred by fallen empires.'
+        : 'A young world.');
+    ov += ` It spans ${WORLD_LANDMASS[p.continents] || 'several continents'}`;
+    if (WORLD_CLIMATE[p.climate]) ov += WORLD_CLIMATE[p.climate];
+    const w = model.size?.w ?? 0, h = model.size?.h ?? 0;
+    ov += `, roughly ${Math.round(w * KM_PER_CELL)}x${Math.round(h * KM_PER_CELL)} km.`;
+    lines.push(ov);
+
+    // Continents & Seas
+    if (continents.length) {
+        lines.push('', 'Continents:');
+        for (const c of continents) lines.push(`- ${c.name}, in the ${placeDir(model, c.x, c.y)}.`);
+    }
+    if (seas.length) {
+        lines.push('', 'Seas:');
+        for (const s of seas) lines.push(`- ${s.name}, in the ${placeDir(model, s.x, s.y)}.`);
+    }
+
+    // Nations (the core — all of them, one line each)
+    if (nations.length) {
+        lines.push('', 'Nations:');
+        for (const n of nations) {
+            const flavor = FLAVOR_WORDS[n.purpose] || n.purpose || '';
+            const gov = (n.tags || []).find(t => t !== 'coastal') || 'realm';
+            let line = `- ${n.name}, a ${flavor} ${gov} (${placeDir(model, n.x, n.y)})`;
+            const cap = capByNation.get(n.id);
+            if (cap) line += `; capital ${cap.name}`;
+            const myCities = citiesByNation.get(n.id) || [];
+            const ports = myCities.filter(c => c.tags?.includes('port'));
+            const towns = myCities.filter(c => !c.tags?.includes('port'));
+            if (ports.length) line += `, ports: ${ports.map(c => c.name).join(', ')}`;
+            if (towns.length) line += `; cities: ${towns.map(c => c.name).join(', ')}`;
+            const rel = relationClauses(model, n, nationById);
+            if (rel) line += `; ${rel}`;
+            lines.push(line + '.');
+        }
+    }
+
+    // Trade (up to 6, preferring to show both modes)
+    const land = routes.filter(r => r.purpose === 'land');
+    const sea = routes.filter(r => r.purpose === 'sea');
+    if (land.length || sea.length) {
+        const tradeLines = [];
+        let li = 0, si = 0;
+        while (tradeLines.length < 6 && (li < land.length || si < sea.length)) {
+            const takeLand = li < land.length && (tradeLines.length % 2 === 0 || si >= sea.length);
+            if (takeLand) tradeLines.push(`- Caravan road: ${routeEnds(land[li++], nameById)}.`);
+            else if (si < sea.length) tradeLines.push(`- Sea lane: ${routeEnds(sea[si++], nameById)}.`);
+        }
+        if (tradeLines.length) lines.push('', 'Trade:', ...tradeLines);
+    }
+
+    // Rivers (top 4 named) + Lakes (named) — brief
+    const namedRivers = rivers.filter(r => r.name).slice(0, 4);
+    if (namedRivers.length) {
+        lines.push('', 'Rivers:');
+        for (const r of namedRivers) {
+            const a = r.pts[0], b = r.pts[r.pts.length - 1];
+            const end = (r.tags || []).includes('to-sea')
+                ? 'to the sea'
+                : `${DIR_WORDS[compass(a[0], a[1], b[0], b[1])]}`;
+            lines.push(`- ${capital(r.name)}, from the ${placeDir(model, a[0], a[1])} flowing ${end}.`);
+        }
+    }
+    const namedLakes = lakes.filter(l => l.name).slice(0, 4);
+    if (namedLakes.length) {
+        lines.push('', 'Lakes:');
+        for (const l of namedLakes) lines.push(`- ${l.name}, in the ${placeDir(model, l.x, l.y)}.`);
+    }
+
+    // Wonders
+    if (wonders.length) {
+        lines.push('', 'Wonders:');
+        for (const wo of wonders) {
+            let line = `- ${wo.name} (${wo.purpose}), in the ${placeDir(model, wo.x, wo.y)}`;
+            const near = nearestNation(model, wo.x, wo.y, nations);
+            if (near) line += `, in the lands of ${near.name}`;
+            lines.push(line + '.');
+        }
+    }
+
+    // Ancient ruins
+    if (ruins.length) {
+        lines.push('', 'Ruins of a fallen age:');
+        for (const r of ruins) {
+            const nation = r.nation ? nationById.get(r.nation) : null;
+            lines.push(`- ${r.name}, in ${nation ? nation.name : 'the wilds'}.`);
+        }
+    }
+
+    // Travel footer
+    const span = Math.max(w, h);
+    const days = Math.max(1, Math.round(span * KM_PER_CELL / 120));
+    lines.push('', `Travel: 1 map cell ≈ ${KM_PER_CELL} km; a caravan makes ~35 km/day, a ship ~120 km/day. Crossing the map ≈ ${days} days by sea.`);
 
     return { prose: lines.join('\n'), ascii: null, json: compactJson(model) };
 }
