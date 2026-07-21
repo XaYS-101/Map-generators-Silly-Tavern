@@ -339,52 +339,166 @@ function describeRegion(model) {
 /* ------------------------------------------------------------------
  *  Town
  * ------------------------------------------------------------------ */
+const WEALTH_WORD = { poor: 'poor', average: 'modest', wealthy: 'prosperous' };
+const TRADE_WORD = {
+    farming: 'farming', trade: 'trading', fishing: 'fishing',
+    mining: 'mining', garrison: 'garrison', temple: 'temple',
+};
+const SITE_CLAUSE = { hillside: 'built on a hillside', crossroads: 'grown around a crossroads' };
+const CONDITION_SENTENCE = {
+    declining: 'Trade has thinned and shutters stay closed.',
+    ruined: 'Much of the town lies in ruin.',
+};
+/* District function → placename phrase; 'general' omits the parenthetical. */
+const DISTRICT_FN_WORD = {
+    docks: 'the docks', mining: 'the mining quarter', garrison: 'the garrison',
+    temple: 'the temple quarter', trade: 'the market quarter', farming: 'the farmlands',
+    noble: 'the noble quarter', slums: 'the slums',
+};
+/* Verb tying a resident to their landmark, by role. */
+const RESIDENT_VERB = {
+    priest: 'tended by', abbot: 'tended by',
+    noble: 'held by', castellan: 'held by',
+    captain: 'commanded by', elder: 'led by',
+};
+
+/** Join a list into "a", "a and b", or "a, b and c". */
+function andList(arr) {
+    if (arr.length <= 1) return arr[0] || '';
+    if (arr.length === 2) return `${arr[0]} and ${arr[1]}`;
+    return `${arr.slice(0, -1).join(', ')} and ${arr[arr.length - 1]}`;
+}
+
 function describeTown(model) {
     const ents = model.entities;
+    const p = model.params || {};
     const landmarks = ents.filter(e => e.kind === 'landmark');
     const buildings = ents.filter(e => e.kind === 'building');
     const districts = ents.filter(e => e.kind === 'district');
+    const roads = ents.filter(e => e.kind === 'road');
+    const bridges = ents.filter(e => e.kind === 'bridge');
+    const piers = ents.filter(e => e.kind === 'pier');
+    const gates = ents.filter(e => e.kind === 'gate');
     const wall = ents.find(e => e.kind === 'wall');
     const river = ents.find(e => e.kind === 'river');
+    const coast = ents.find(e => e.kind === 'coast');
     const plaza = ents.find(e => e.kind === 'plaza');
-    const size = model.params.size || 'town';
+    const size = p.size || 'town';
 
     const lines = [];
     lines.push(`== ${model.name} (${size}, seed "${model.seed}") ==`);
-    let ov = `Overview: A ${size} of some ${landmarks.length + buildings.length} buildings`;
-    if (model.params.water === 'river') ov += ', straddling a river';
-    if (model.params.water === 'coast') ov += ', on the coast';
+
+    // 1) Overview
+    const wealth = WEALTH_WORD[p.wealth] || 'modest';
+    const trade = TRADE_WORD[p.trade];
+    const n = landmarks.length + buildings.length;
+    let ov = `Overview: A ${wealth}${trade ? ' ' + trade : ''} ${size} of ~${n} buildings`;
+    const siteClause = SITE_CLAUSE[p.site];
+    if (siteClause) ov += `, ${siteClause}`;
+    if (river || p.water === 'river') ov += ', straddling a river';
+    else if (coast || p.water === 'coast') ov += ', on the coast';
     if (wall) {
-        const gates = (wall.tags || []).join(', ');
-        ov += `, ringed by a wall${gates ? ` with gates to the ${gates}` : ''}`;
+        const type = wall.type === 'stone' ? 'stone' : 'palisade';
+        const dirs = gateDirs(gates, wall);
+        ov += `, ringed by a ${type} wall`;
+        if (dirs.length) ov += ` with gates to the ${andList(dirs)}`;
+        if (wall.breaches?.length) ov += ', now breached in places';
     }
     ov += '.';
+    const cond = CONDITION_SENTENCE[p.condition];
+    if (cond) ov += ` ${cond}`;
     lines.push(ov);
 
+    // 2) Landmarks (resident inline)
     if (landmarks.length) {
         lines.push('', 'Landmarks:');
         for (const l of landmarks.slice(0, 10)) {
-            let pos = 'near the center';
-            if (plaza) {
-                const d = Math.hypot(l.x - plaza.x, l.y - plaza.y);
-                pos = d < 60 ? 'on the market square' : `${d < 140 ? 'a short walk' : 'further out'} ${DIR_WORDS[compass(plaza.x, plaza.y, l.x, l.y)]} of the square`;
+            const label = l.name ? `${l.name} (${l.purpose})` : capital(l.purpose);
+            let line = `- ${label}, ${plazaPos(plaza, l)}`;
+            const r = l.resident;
+            if (r) {
+                const verb = RESIDENT_VERB[r.role] || 'kept by';
+                line += ` — ${verb} ${r.name}${r.trait ? ', ' + r.trait : ''}`;
+            } else if (l.notes) {
+                line += ` — ${l.notes}`;
             }
-            lines.push(`- ${l.name ? `${l.name} (${l.purpose})` : capital(l.purpose)}, ${pos}${l.notes ? ' — ' + l.notes : ''}.`);
+            lines.push(line + '.');
         }
     }
 
+    // 3) Districts
     if (districts.length) {
         lines.push('', 'Districts:');
-        for (const d of districts.slice(0, 5)) {
-            lines.push(`- ${d.name}, in the ${placeDir(model, d.x, d.y)}${d.notes ? ' — ' + d.notes : ''}.`);
+        for (const d of districts.slice(0, 6)) {
+            const fnWord = d.fn && d.fn !== 'general' ? DISTRICT_FN_WORD[d.fn] : null;
+            lines.push(`- ${d.name}${fnWord ? ` (${fnWord})` : ''}, in the ${placeDir(model, d.x, d.y)}.`);
         }
     }
 
-    if (buildings.length) {
-        lines.push('', `Besides these, some ${buildings.length} ordinary houses, shops and workshops line the streets.`);
+    // 4) Getting around
+    const around = [];
+    const gd = gateDirs(gates, wall);
+    if (gd.length) around.push(`gates open to the ${andList(gd)}`);
+    const outDirs = roadsOut(model, roads);
+    if (outDirs.length) {
+        around.push(`${outDirs.length} main road${outDirs.length > 1 ? 's' : ''} leave toward the ${andList(outDirs)}`);
+    }
+    if (bridges.length && river) {
+        around.push(bridges.length === 1 ? 'a bridge crosses the river' : `${bridges.length} bridges cross the river`);
+    }
+    if (piers.length) around.push(`${piers.length === 1 ? 'a pier reaches' : piers.length + ' piers reach'} into the water`);
+    if (around.length) lines.push('', 'Getting around: ' + capital(around.join('; ')) + '.');
+
+    // 5) Condition (only when not thriving)
+    if (p.condition && p.condition !== 'thriving') {
+        const abandoned = buildings.filter(b => b.state === 'abandoned').length;
+        const ruined = buildings.filter(b => b.state === 'ruined' || b.state === 'rubble').length;
+        const parts = [];
+        if (abandoned) parts.push(`${abandoned} building${abandoned > 1 ? 's' : ''} stand${abandoned > 1 ? '' : 's'} abandoned`);
+        if (ruined) parts.push(`${ruined} lie${ruined > 1 ? '' : 's'} in ruin`);
+        if (wall?.breaches?.length) parts.push(`the wall is breached in ${wall.breaches.length} place${wall.breaches.length > 1 ? 's' : ''}`);
+        if (parts.length) lines.push('', 'Condition: ' + capital(andList(parts)) + '.');
     }
 
     return { prose: lines.join('\n'), ascii: null, json: compactJson(model) };
+}
+
+/** Gate compass words (gate entities preferred, wall.tags as fallback). */
+function gateDirs(gates, wall) {
+    const seen = new Set();
+    const out = [];
+    const add = d => { const w = DIR_WORDS[d] || d; if (d && !seen.has(w)) { seen.add(w); out.push(w); } };
+    if (gates.length) for (const g of gates) for (const d of (g.tags || [])) add(d);
+    else if (wall) for (const d of (wall.tags || [])) add(d);
+    return out;
+}
+
+/** Legacy plaza-relative position phrasing for a landmark. */
+function plazaPos(plaza, l) {
+    if (!plaza) return 'near the center';
+    const d = Math.hypot(l.x - plaza.x, l.y - plaza.y);
+    if (d < 60) return 'on the market square';
+    return `${d < 140 ? 'a short walk' : 'further out'} ${DIR_WORDS[compass(plaza.x, plaza.y, l.x, l.y)]} of the square`;
+}
+
+/** Compass dirs of main roads whose endpoints reach the map edge. */
+function roadsOut(model, roads) {
+    const w = model.size?.w ?? 100, h = model.size?.h ?? 100;
+    const cx = w / 2, cy = h / 2;
+    const m = Math.max(w, h) * 0.06;
+    const seen = new Set();
+    const out = [];
+    for (const r of roads) {
+        if (r.purpose !== 'main' || !r.pts?.length) continue;
+        for (const q of [r.pts[0], r.pts[r.pts.length - 1]]) {
+            if (q[0] <= m || q[0] >= w - m || q[1] <= m || q[1] >= h - m) {
+                const word = DIR_WORDS[compass(cx, cy, q[0], q[1])];
+                if (!seen.has(word)) { seen.add(word); out.push(word); }
+                break;
+            }
+        }
+    }
+    return out;
 }
 
 /* ------------------------------------------------------------------
