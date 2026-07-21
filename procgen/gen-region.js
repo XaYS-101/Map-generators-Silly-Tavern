@@ -12,9 +12,10 @@ import { Rng } from './rng.js';
 import { Noise2D } from './noise.js';
 import { makeEnvelope, compass } from './schema.js';
 import { nameFor, biomeName, POI_KINDS } from './names.js';
+import { BIOME_CODES } from './region/biomes.js';
 
 const N = 256;
-export const BIOME_CODES = ['ocean', 'lake', 'beach', 'grassland', 'forest', 'rainforest', 'desert', 'swamp', 'mountains', 'snow'];
+export { BIOME_CODES };
 
 export function generateRegion(seed, params = {}) {
     const p = { mask: 'island', water: 0.42, settlements: 'some', ...params };

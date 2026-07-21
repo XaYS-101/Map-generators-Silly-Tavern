@@ -6,6 +6,7 @@
  *   - view: { s: scale px-per-unit, ox, oy: margins }
  * ------------------------------------------------------------------ */
 import { rleDecode } from './schema.js';
+import { BIOME_CODES } from './region/biomes.js';
 
 const idNum = id => Number(String(id).replace(/^\D+/, ''));
 
@@ -476,8 +477,7 @@ const BIOME_RGB = {
     grassland: [201, 207, 158], forest: [154, 184, 138], rainforest: [127, 168, 119],
     desert: [221, 200, 148], swamp: [163, 171, 138], mountains: [185, 172, 149], snow: [232, 230, 224],
 };
-// must match BIOME_CODES order in gen-region.js
-const BIOME_ORDER = ['ocean', 'lake', 'beach', 'grassland', 'forest', 'rainforest', 'desert', 'swamp', 'mountains', 'snow'];
+const BIOME_ORDER = BIOME_CODES;   // single source of truth: region/biomes.js
 
 export function drawRegion(ctx, model, rng, h, view) {
     const { s, ox, oy } = view;
