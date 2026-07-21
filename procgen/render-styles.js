@@ -479,6 +479,7 @@ const BIOME_RGB = {
     // appended biomes: parchment-friendly muted tones
     taiga: [126, 148, 130], tundra: [206, 202, 186], savanna: [199, 194, 130],
     badlands: [193, 141, 106], ashland: [118, 110, 104], blight: [150, 138, 150],
+    iceshelf: [222, 229, 235],   // world maps: frozen polar ocean, pale blue-white
 };
 const BIOME_ORDER = BIOME_CODES;   // single source of truth: region/biomes.js
 
@@ -533,51 +534,8 @@ export function drawRegion(ctx, model, rng, h, view) {
     ctx.stroke();
     ctx.globalAlpha = 1;
 
-    // rivers: per-point width grows downstream. Split the polyline into runs
-    // of similar (quantized) width and ink each run with the double stroke,
-    // widths scaled to s. Runs share their boundary point so there are no gaps.
-    const riverW = p => (p.length > 2 && p[2] != null) ? p[2] : 1.5;   // 2-tuple → default
-    const qStep = 0.75;
-    for (const r of model.entities.filter(e => e.kind === 'river')) {
-        const n = r.pts.length;
-        if (n >= 2) {
-            const ws = r.pts.map(riverW);
-            const qs = ws.map(w => Math.round(w / qStep));
-            const emit = (a, b) => {
-                // average width over this run's own points (a..b-1, excluding the
-                // shared boundary at b), fall back to the single point when a===b
-                let sum = 0, cnt = 0;
-                for (let i = a; i < b; i++) { sum += ws[i]; cnt++; }
-                const w = cnt ? sum / cnt : ws[a];
-                const outer = (0.9 + 0.55 * w) * (s / 3);
-                const seg = r.pts.slice(a, b + 1).map(([x, y]) => px(x, y));
-                h.inkLine(seg, { width: outer, wobble: 0.8, color: '#5b7f96', alpha: 0.85 });
-                h.inkLine(seg, { width: outer * 0.4, wobble: 0.6, color: '#8fb0c4', alpha: 0.8, passes: 1 });
-            };
-            let a = 0;
-            for (let i = 1; i < n; i++) {
-                if (qs[i] !== qs[a]) { emit(a, i); a = i; }   // shares point i with next run
-            }
-            emit(a, n - 1);
-        }
-
-        // delta hint: short diverging strokes fanning from the mouth
-        if (r.tags && r.tags.includes('delta') && n >= 2) {
-            const [lx, ly] = r.pts[n - 1];
-            const [px2, py2] = r.pts[n - 2];
-            const dx = lx - px2, dy = ly - py2;
-            const len = Math.hypot(dx, dy) || 1;
-            const ux = dx / len, uy = dy / len;
-            const ang0 = Math.atan2(uy, ux);
-            const reach = 5 * (s / 3);
-            const [mx, my] = px(lx, ly);
-            for (const da of [-0.5, 0, 0.5]) {
-                const a2 = ang0 + da;
-                h.inkLine([[mx, my], [mx + Math.cos(a2) * reach, my + Math.sin(a2) * reach]],
-                    { width: 1.1 * (s / 3), wobble: 0.5, color: '#5b7f96', alpha: 0.75, passes: 1 });
-            }
-        }
-    }
+    // rivers: shared per-point-width run-grouping painter (see drawRivers)
+    drawRivers(model.entities.filter(e => e.kind === 'river'), px, s, h);
 
     // roads (dashed)
     ctx.save();
@@ -926,3 +884,479 @@ function offsetPolyline(pts, d) {
 }
 
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
+
+/* ------------------------------------------------------------------
+ *  Shared river painter (region + world). Per-point width grows
+ *  downstream: split each polyline into runs of similar (quantized)
+ *  width and ink each run with the double stroke, widths scaled to s.
+ *  Runs share their boundary point so there are no gaps. RNG-free.
+ * ------------------------------------------------------------------ */
+function drawRivers(rivers, px, s, h) {
+    const riverW = p => (p.length > 2 && p[2] != null) ? p[2] : 1.5;   // 2-tuple → default
+    const qStep = 0.75;
+    for (const r of rivers) {
+        const pts = r.pts || [];
+        const n = pts.length;
+        if (n >= 2) {
+            const ws = pts.map(riverW);
+            const qs = ws.map(w => Math.round(w / qStep));
+            const emit = (a, b) => {
+                // average width over this run's own points (a..b-1, excluding the
+                // shared boundary at b), fall back to the single point when a===b
+                let sum = 0, cnt = 0;
+                for (let i = a; i < b; i++) { sum += ws[i]; cnt++; }
+                const w = cnt ? sum / cnt : ws[a];
+                const outer = (0.9 + 0.55 * w) * (s / 3);
+                const seg = pts.slice(a, b + 1).map(([x, y]) => px(x, y));
+                h.inkLine(seg, { width: outer, wobble: 0.8, color: '#5b7f96', alpha: 0.85 });
+                h.inkLine(seg, { width: outer * 0.4, wobble: 0.6, color: '#8fb0c4', alpha: 0.8, passes: 1 });
+            };
+            let a = 0;
+            for (let i = 1; i < n; i++) {
+                if (qs[i] !== qs[a]) { emit(a, i); a = i; }   // shares point i with next run
+            }
+            emit(a, n - 1);
+        }
+
+        // delta hint: short diverging strokes fanning from the mouth
+        if (r.tags && r.tags.includes('delta') && n >= 2) {
+            const [lx, ly] = pts[n - 1];
+            const [px2, py2] = pts[n - 2];
+            const dx = lx - px2, dy = ly - py2;
+            const len = Math.hypot(dx, dy) || 1;
+            const ux = dx / len, uy = dy / len;
+            const ang0 = Math.atan2(uy, ux);
+            const reach = 5 * (s / 3);
+            const [mx, my] = px(lx, ly);
+            for (const da of [-0.5, 0, 0.5]) {
+                const a2 = ang0 + da;
+                h.inkLine([[mx, my], [mx + Math.cos(a2) * reach, my + Math.sin(a2) * reach]],
+                    { width: 1.1 * (s / 3), wobble: 0.5, color: '#5b7f96', alpha: 0.75, passes: 1 });
+            }
+        }
+    }
+}
+
+/* ------------------------------------------------------------------
+ *  World: planetary parchment chart. Biome underlay + nation tint +
+ *  dashed borders + coastline, rivers, sea/land trade routes, glyph
+ *  scatters, capitals/cities/wonders/ruins, nation/sea/continent
+ *  labels, and a decorative frame + compass rose + sea serpents.
+ *
+ *  Everything deterministic (jitter from the style `rng`) and tolerant
+ *  of missing layers/entities — an empty world must not throw.
+ * ------------------------------------------------------------------ */
+export function drawWorld(ctx, model, rng, h, view) {
+    const { s, ox, oy } = view;
+    const px = (x, y) => [ox + x * s, oy + y * s];
+    const layers = model.layers || {};
+    const ents = model.entities || [];
+    const N = layers.N;
+    const biome = layers.biomes;
+    const isWater = c => c === 0 || c === 1 || c === 16;   // ocean, lake, iceshelf (frozen ocean)
+
+    if (N && biome) {
+        // ---- 1. biome color underlay (crisp cells scaled up, translucent) ----
+        const tmp = document.createElement('canvas');
+        tmp.width = N; tmp.height = N;
+        const tctx = tmp.getContext('2d');
+        const img = tctx.createImageData(N, N);
+        for (let i = 0; i < N * N; i++) {
+            const rgb = BIOME_RGB[BIOME_ORDER[biome[i]]] || [200, 200, 200];
+            img.data[i * 4] = rgb[0];
+            img.data[i * 4 + 1] = rgb[1];
+            img.data[i * 4 + 2] = rgb[2];
+            img.data[i * 4 + 3] = 255;
+        }
+        tctx.putImageData(img, 0, 0);
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(tmp, ox, oy, N * s, N * s);
+        ctx.restore();
+        ctx.globalAlpha = 1;
+
+        // ---- 2. nation tint (owner value indexes nationColors directly) ----
+        const owner = layers.owner;
+        const nationColors = layers.nationColors || [];
+        if (owner) {
+            const timg = tctx.createImageData(N, N);
+            for (let i = 0; i < N * N; i++) {
+                const o = owner[i];
+                const c = o >= 0 ? nationColors[o] : null;
+                if (c) {
+                    timg.data[i * 4] = c[0];
+                    timg.data[i * 4 + 1] = c[1];
+                    timg.data[i * 4 + 2] = c[2];
+                    timg.data[i * 4 + 3] = 255;
+                } else {
+                    timg.data[i * 4 + 3] = 0;   // transparent where owner < 0 / unknown
+                }
+            }
+            tctx.putImageData(timg, 0, 0);
+            ctx.save();
+            ctx.imageSmoothingEnabled = false;
+            ctx.globalAlpha = 0.16;
+            ctx.drawImage(tmp, ox, oy, N * s, N * s);
+            ctx.restore();
+            ctx.globalAlpha = 1;
+
+            // ---- 3. borders: dashed cell-edge strokes between differing owners,
+            //         only where BOTH cells are land ----
+            ctx.save();
+            ctx.setLineDash([3, 3]);
+            ctx.strokeStyle = h.INK;
+            ctx.globalAlpha = 0.55;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (let y = 0; y < N; y++) {
+                for (let x = 0; x < N; x++) {
+                    const i = y * N + x;
+                    if (isWater(biome[i])) continue;
+                    const o0 = owner[i];
+                    if (x + 1 < N) {
+                        const j = i + 1;
+                        if (!isWater(biome[j]) && o0 !== owner[j]) {
+                            const [ax, ay] = px(x + 1, y);
+                            const jx = rng.float(-0.4, 0.4);
+                            ctx.moveTo(ax + jx, ay);
+                            ctx.lineTo(ax + jx, ay + s);
+                        }
+                    }
+                    if (y + 1 < N) {
+                        const j = i + N;
+                        if (!isWater(biome[j]) && o0 !== owner[j]) {
+                            const [ax, ay] = px(x, y + 1);
+                            const jy = rng.float(-0.4, 0.4);
+                            ctx.moveTo(ax, ay + jy);
+                            ctx.lineTo(ax + s, ay + jy);
+                        }
+                    }
+                }
+            }
+            ctx.stroke();
+            ctx.restore();
+            ctx.globalAlpha = 1;
+        }
+
+        // ---- 4. coastline: cell edges between water and land ----
+        ctx.strokeStyle = h.INK;
+        ctx.globalAlpha = 0.8;
+        ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        for (let y = 0; y < N; y++) {
+            for (let x = 0; x < N; x++) {
+                const w0 = isWater(biome[y * N + x]);
+                if (x + 1 < N && w0 !== isWater(biome[y * N + x + 1])) {
+                    const [ax, ay] = px(x + 1, y);
+                    ctx.moveTo(ax + rng.float(-0.5, 0.5), ay);
+                    ctx.lineTo(ax + rng.float(-0.5, 0.5), ay + s);
+                }
+                if (y + 1 < N && w0 !== isWater(biome[(y + 1) * N + x])) {
+                    const [ax, ay] = px(x, y + 1);
+                    ctx.moveTo(ax, ay + rng.float(-0.5, 0.5));
+                    ctx.lineTo(ax + s, ay + rng.float(-0.5, 0.5));
+                }
+            }
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+    }
+
+    // ---- 5. rivers (shared painter) ----
+    drawRivers(ents.filter(e => e.kind === 'river'), px, s, h);
+
+    // ---- 6. trade routes ----
+    for (const rt of ents.filter(e => e.kind === 'route')) {
+        const raw = rt.pts || [];
+        if (raw.length < 2) continue;
+        const pts = raw.map(([x, y]) => px(x, y));
+        const sea = rt.purpose === 'sea';
+        ctx.save();
+        ctx.setLineDash(sea ? [2, 6] : [6, 5]);
+        ctx.strokeStyle = sea ? '#4a6b82' : '#8a5a30';
+        ctx.globalAlpha = sea ? 0.6 : 0.8;
+        ctx.lineWidth = sea ? 1.2 : 1.3;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+        ctx.stroke();
+        ctx.restore();
+        ctx.globalAlpha = 1;
+
+        // tiny ship glyph at the midpoint of long sea lanes (> ~30 cells)
+        if (sea) {
+            let cells = 0;
+            for (let i = 1; i < raw.length; i++) {
+                cells += Math.hypot(raw[i][0] - raw[i - 1][0], raw[i][1] - raw[i - 1][1]);
+            }
+            if (cells > 30) {
+                const [mx, my] = pts[Math.floor(pts.length / 2)];
+                drawShip(ctx, mx, my, h);
+            }
+        }
+    }
+
+    // ---- 7. glyph scatters (world scale: smaller than region) ----
+    ctx.strokeStyle = h.INK;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.75;
+    ctx.beginPath();
+    for (const [x, y] of (layers.peaks || [])) {
+        const [cx, cy] = px(x, y);
+        const r = rng.float(2.0, 3.2);
+        ctx.moveTo(cx - r, cy + r * 0.7);
+        ctx.lineTo(cx, cy - r);
+        ctx.lineTo(cx + r, cy + r * 0.7);
+        ctx.moveTo(cx, cy - r * 0.4);
+        ctx.lineTo(cx + r * 0.5, cy + r * 0.35);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    ctx.strokeStyle = '#5c6b4a';
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath();
+    for (const [x, y] of (layers.trees || [])) {
+        const [cx, cy] = px(x, y);
+        const r = rng.float(1.3, 2.1);
+        ctx.moveTo(cx + r, cy);
+        ctx.arc(cx, cy, r, 0, Math.PI, true);
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx, cy + r);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // ---- 8. settlement marks (capitals + cities), drawn before labels ----
+    for (const cap of ents.filter(e => e.kind === 'capital')) {
+        const [cx, cy] = px(cap.x, cap.y);
+        const R = 5 * (s / 3);
+        ctx.strokeStyle = h.INK;
+        ctx.globalAlpha = 0.9;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, R + 2, 0, Math.PI * 2);   // enclosing circle
+        ctx.stroke();
+        ctx.fillStyle = h.INK;
+        star5(ctx, cx, cy, R, R * 0.42);           // 5-point ink star
+        ctx.fill();
+        ctx.globalAlpha = 1;
+    }
+    for (const city of ents.filter(e => e.kind === 'city')) {
+        const [cx, cy] = px(city.x, city.y);
+        ctx.fillStyle = h.INK;
+        ctx.fillRect(cx - 2, cy - 2, 4, 4);        // filled square
+        if (city.tags && city.tags.includes('port')) drawAnchor(ctx, cx + 6, cy, h);
+    }
+
+    // ---- 9. wonders: 4-ray asterisk glyph ----
+    for (const wd of ents.filter(e => e.kind === 'wonder')) {
+        const [cx, cy] = px(wd.x, wd.y);
+        ctx.strokeStyle = '#6b5334';
+        ctx.globalAlpha = 0.9;
+        ctx.lineWidth = 1.2;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        const r = 4;
+        for (let k = 0; k < 4; k++) {
+            const a = k * Math.PI / 4;
+            ctx.moveTo(cx - Math.cos(a) * r, cy - Math.sin(a) * r);
+            ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+    }
+
+    // ---- 10. ruins: three-dot (∴) glyph ----
+    for (const ru of ents.filter(e => e.kind === 'ruin')) {
+        const [cx, cy] = px(ru.x, ru.y);
+        ctx.fillStyle = '#6b5334';
+        ctx.globalAlpha = 0.85;
+        for (const [dx, dy] of [[0, -2], [-2, 1.5], [2, 1.5]]) {
+            ctx.beginPath();
+            ctx.arc(cx + dx, cy + dy, 0.9, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    // ---- 11. nation names FIRST (large faded italic) so the big names land,
+    //         then settlement labels dodge around them ----
+    for (const nt of ents.filter(e => e.kind === 'nation')) {
+        if (!nt.name) continue;
+        const [cx, cy] = px(nt.x, nt.y);
+        h.label(nt.name, cx, cy, { size: 20, italic: true, color: 'rgba(74,56,35,0.55)' });
+    }
+
+    // ---- 8b. settlement labels ----
+    for (const cap of ents.filter(e => e.kind === 'capital')) {
+        if (!cap.name) continue;
+        const [cx, cy] = px(cap.x, cap.y);
+        h.label(cap.name, cx, cy + 14, { size: 13, italic: false, weight: '600' });
+    }
+    for (const city of ents.filter(e => e.kind === 'city')) {
+        if (!city.name) continue;
+        const [cx, cy] = px(city.x, city.y);
+        h.label(city.name, cx, cy + 11, { size: 11, italic: false });
+    }
+
+    // ---- 9b/10b. wonder + ruin labels (italic) ----
+    for (const wd of ents.filter(e => e.kind === 'wonder')) {
+        if (!wd.name) continue;
+        const [cx, cy] = px(wd.x, wd.y);
+        h.label(wd.name, cx, cy + 12, { size: 11, italic: true, color: '#6b5334' });
+    }
+    for (const ru of ents.filter(e => e.kind === 'ruin')) {
+        if (!ru.name) continue;
+        const [cx, cy] = px(ru.x, ru.y);
+        h.label(ru.name, cx, cy + 11, { size: 10, italic: true, color: '#6b5334' });
+    }
+
+    // ---- 12. sea + continent names ----
+    for (const sea of ents.filter(e => e.kind === 'sea')) {
+        if (!sea.name) continue;
+        const [cx, cy] = px(sea.x, sea.y);
+        h.label(sea.name, cx, cy, { size: 14, italic: true, color: 'rgba(74,90,105,0.75)' });
+    }
+    for (const co of ents.filter(e => e.kind === 'continent')) {
+        if (!co.name) continue;
+        const [cx, cy] = px(co.x, co.y);
+        const text = co.name.toUpperCase().split('').join(' ');   // spaced caps
+        h.label(text, cx, cy, { size: 16, italic: false, color: 'rgba(74,56,35,0.5)' });
+    }
+
+    // ---- 13. decor: double frame, compass rose, sea serpents ----
+    const cw = ctx.canvas.width, ch = ctx.canvas.height;
+    h.inkRect(6, 6, cw - 12, ch - 12, { width: 1.5, wobble: 0.5 });
+    h.inkRect(12, 12, cw - 24, ch - 24, { width: 0.8, wobble: 0.4 });
+
+    const decor = layers.decor || {};
+    if (decor.compass) {
+        const [cx, cy] = px(decor.compass[0], decor.compass[1]);
+        drawCompass(ctx, cx, cy, h, rng);
+    }
+    for (const sp of (decor.serpents || [])) {
+        const [cx, cy] = px(sp[0], sp[1]);
+        drawSerpent(ctx, cx, cy, h, rng);
+    }
+}
+
+/** Trace a 5-point star path (not stroked/filled here — caller decides). */
+function star5(ctx, cx, cy, rOuter, rInner) {
+    ctx.beginPath();
+    for (let k = 0; k < 10; k++) {
+        const rr = k % 2 === 0 ? rOuter : rInner;
+        const a = -Math.PI / 2 + k * Math.PI / 5;
+        const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr;
+        if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.closePath();
+}
+
+/** Tiny ship: hull arc + a triangular sail on a short mast. */
+function drawShip(ctx, cx, cy, h) {
+    ctx.save();
+    ctx.strokeStyle = '#3a4b58';
+    ctx.globalAlpha = 0.85;
+    ctx.lineWidth = 1.1;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, cy - 1, 4, Math.PI * 0.15, Math.PI * 0.85, false);   // hull
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 1);
+    ctx.lineTo(cx, cy - 7);            // mast
+    ctx.lineTo(cx + 4, cy - 2.5);      // sail leech
+    ctx.lineTo(cx, cy - 2.5);          // sail foot
+    ctx.stroke();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+}
+
+/** Tiny anchor next to port cities: shank, ring, stock, curved flukes. */
+function drawAnchor(ctx, cx, cy, h) {
+    ctx.save();
+    ctx.strokeStyle = h.INK;
+    ctx.globalAlpha = 0.8;
+    ctx.lineWidth = 1;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 3.5);
+    ctx.lineTo(cx, cy + 4);            // shank
+    ctx.moveTo(cx - 2, cy - 1.5);
+    ctx.lineTo(cx + 2, cy - 1.5);      // stock (crossbar)
+    ctx.moveTo(cx - 3, cy + 1.5);
+    ctx.quadraticCurveTo(cx, cy + 6, cx + 3, cy + 1.5);   // flukes
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy - 4.2, 1.1, 0, Math.PI * 2);            // ring
+    ctx.stroke();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+}
+
+/** Compass rose: two rings, 8 rays (long cardinals + short diagonals), N tick. */
+function drawCompass(ctx, cx, cy, h, rng) {
+    const R = 26;
+    ctx.save();
+    ctx.strokeStyle = h.INK;
+    ctx.globalAlpha = 0.8;
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * 0.35, 0, Math.PI * 2);
+    ctx.stroke();
+    for (let k = 0; k < 8; k++) {
+        const a = -Math.PI / 2 + k * Math.PI / 4;
+        const len = (k % 2 === 0 ? R : R * 0.6) + rng.float(-0.6, 0.6);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+        ctx.stroke();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    h.label('N', cx, cy - R - 4, { size: 11, italic: false, weight: '600', color: h.INK });
+}
+
+/** Sea serpent: 3-hump wavy body + head dot + forked tail, jittered orientation. */
+function drawSerpent(ctx, cx, cy, h, rng) {
+    const len = 30, humps = 3, steps = 18;
+    const dir = rng.float(0, Math.PI * 2);
+    const ux = Math.cos(dir), uy = Math.sin(dir);
+    const nx = -uy, ny = ux;
+    const pts = [];
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const along = t * len;
+        const wave = Math.sin(t * Math.PI * humps) * 4;
+        pts.push([cx + ux * along + nx * wave, cy + uy * along + ny * wave]);
+    }
+    h.inkLine(pts, { width: 1.4, wobble: 0.5, color: h.INK, alpha: 0.7 });
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+    ctx.strokeStyle = h.INK;
+    ctx.fillStyle = h.INK;
+    ctx.lineWidth = 1;
+    ctx.lineCap = 'round';
+    const [hx, hy] = pts[0];
+    ctx.beginPath();
+    ctx.arc(hx, hy, 2, 0, Math.PI * 2);   // head
+    ctx.fill();
+    const [tx, ty] = pts[pts.length - 1];
+    const fork = 4;
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx + ux * fork + nx * fork * 0.8, ty + uy * fork + ny * fork * 0.8);
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx + ux * fork - nx * fork * 0.8, ty + uy * fork - ny * fork * 0.8);
+    ctx.stroke();                          // forked tail
+    ctx.restore();
+    ctx.globalAlpha = 1;
+}

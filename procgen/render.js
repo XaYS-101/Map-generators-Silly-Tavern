@@ -8,7 +8,7 @@
  *  drawing is stable across re-renders of the same map.
  * ------------------------------------------------------------------ */
 import { Rng } from './rng.js';
-import { drawDungeon, drawRegion, drawTown, drawInterior } from './render-styles.js';
+import { drawDungeon, drawRegion, drawTown, drawInterior, drawWorld } from './render-styles.js';
 
 export const INK = '#3a2c1a';
 export const PARCHMENT = '#f3e9d2';
@@ -27,6 +27,12 @@ function canvasDims(model) {
         case 'region': {
             // scale adapts to map size N so canvases stay ~700–900 px
             const s = Math.max(2, Math.round(768 / w)), m = 36;
+            return { w: w * s + m * 2, h: h * s + m * 2, view: { s, ox: m, oy: m } };
+        }
+        case 'world': {
+            // world charts run larger N; scale keeps the canvas ~700–900 px.
+            // wider margin (44) leaves room for the decorative double frame.
+            const s = Math.max(2, Math.round(900 / w)), m = 44;
             return { w: w * s + m * 2, h: h * s + m * 2, view: { s, ox: m, oy: m } };
         }
         case 'town': {
@@ -55,6 +61,7 @@ export function renderMap(model) {
             case 'dungeon': drawDungeon(ctx, model, style, h, dims.view); break;
             case 'interior': drawInterior(ctx, model, style, h, dims.view); break;
             case 'region': drawRegion(ctx, model, style, h, dims.view); break;
+            case 'world': drawWorld(ctx, model, style, h, dims.view); break;
             case 'town': drawTown(ctx, model, style, h, dims.view); break;
         }
     } catch (e) {
