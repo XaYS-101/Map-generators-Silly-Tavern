@@ -25,7 +25,8 @@ function canvasDims(model) {
             return { w: w * ts + m * 2, h: h * ts + m * 2 + 24, view: { s: ts, ox: m, oy: m + 24 } };
         }
         case 'region': {
-            const s = 3, m = 36;
+            // scale adapts to map size N so canvases stay ~700–900 px
+            const s = Math.max(2, Math.round(768 / w)), m = 36;
             return { w: w * s + m * 2, h: h * s + m * 2, view: { s, ox: m, oy: m } };
         }
         case 'town': {

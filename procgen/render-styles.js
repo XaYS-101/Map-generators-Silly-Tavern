@@ -476,6 +476,9 @@ const BIOME_RGB = {
     ocean: [143, 168, 186], lake: [149, 175, 190], beach: [230, 217, 176],
     grassland: [201, 207, 158], forest: [154, 184, 138], rainforest: [127, 168, 119],
     desert: [221, 200, 148], swamp: [163, 171, 138], mountains: [185, 172, 149], snow: [232, 230, 224],
+    // appended biomes: parchment-friendly muted tones
+    taiga: [126, 148, 130], tundra: [206, 202, 186], savanna: [199, 194, 130],
+    badlands: [193, 141, 106], ashland: [118, 110, 104], blight: [150, 138, 150],
 };
 const BIOME_ORDER = BIOME_CODES;   // single source of truth: region/biomes.js
 
@@ -530,11 +533,50 @@ export function drawRegion(ctx, model, rng, h, view) {
     ctx.stroke();
     ctx.globalAlpha = 1;
 
-    // rivers
+    // rivers: per-point width grows downstream. Split the polyline into runs
+    // of similar (quantized) width and ink each run with the double stroke,
+    // widths scaled to s. Runs share their boundary point so there are no gaps.
+    const riverW = p => (p.length > 2 && p[2] != null) ? p[2] : 1.5;   // 2-tuple → default
+    const qStep = 0.75;
     for (const r of model.entities.filter(e => e.kind === 'river')) {
-        const pts = r.pts.map(([x, y]) => px(x, y));
-        h.inkLine(pts, { width: 2.4, wobble: 0.8, color: '#5b7f96', alpha: 0.85 });
-        h.inkLine(pts, { width: 1, wobble: 0.6, color: '#8fb0c4', alpha: 0.8, passes: 1 });
+        const n = r.pts.length;
+        if (n >= 2) {
+            const ws = r.pts.map(riverW);
+            const qs = ws.map(w => Math.round(w / qStep));
+            const emit = (a, b) => {
+                // average width over this run's own points (a..b-1, excluding the
+                // shared boundary at b), fall back to the single point when a===b
+                let sum = 0, cnt = 0;
+                for (let i = a; i < b; i++) { sum += ws[i]; cnt++; }
+                const w = cnt ? sum / cnt : ws[a];
+                const outer = (0.9 + 0.55 * w) * (s / 3);
+                const seg = r.pts.slice(a, b + 1).map(([x, y]) => px(x, y));
+                h.inkLine(seg, { width: outer, wobble: 0.8, color: '#5b7f96', alpha: 0.85 });
+                h.inkLine(seg, { width: outer * 0.4, wobble: 0.6, color: '#8fb0c4', alpha: 0.8, passes: 1 });
+            };
+            let a = 0;
+            for (let i = 1; i < n; i++) {
+                if (qs[i] !== qs[a]) { emit(a, i); a = i; }   // shares point i with next run
+            }
+            emit(a, n - 1);
+        }
+
+        // delta hint: short diverging strokes fanning from the mouth
+        if (r.tags && r.tags.includes('delta') && n >= 2) {
+            const [lx, ly] = r.pts[n - 1];
+            const [px2, py2] = r.pts[n - 2];
+            const dx = lx - px2, dy = ly - py2;
+            const len = Math.hypot(dx, dy) || 1;
+            const ux = dx / len, uy = dy / len;
+            const ang0 = Math.atan2(uy, ux);
+            const reach = 5 * (s / 3);
+            const [mx, my] = px(lx, ly);
+            for (const da of [-0.5, 0, 0.5]) {
+                const a2 = ang0 + da;
+                h.inkLine([[mx, my], [mx + Math.cos(a2) * reach, my + Math.sin(a2) * reach]],
+                    { width: 1.1 * (s / 3), wobble: 0.5, color: '#5b7f96', alpha: 0.75, passes: 1 });
+            }
+        }
     }
 
     // roads (dashed)
@@ -553,6 +595,38 @@ export function drawRegion(ctx, model, rng, h, view) {
     }
     ctx.restore();
     ctx.globalAlpha = 1;
+
+    // bridges & fords: the road crosses perpendicular to the river flow `angle`
+    for (const br of model.entities.filter(e => e.kind === 'bridge')) {
+        const [cx, cy] = px(br.x, br.y);
+        const a = br.angle || 0;
+        const rvx = Math.cos(a), rvy = Math.sin(a);      // along the river
+        const rdx = -Math.sin(a), rdy = Math.cos(a);     // along the road (perpendicular)
+        const u = s / 3;
+        if (br.purpose === 'ford') {
+            // a row of small dots across the river (along the road direction)
+            const half = 3 * u;
+            ctx.fillStyle = '#6f4f2e';
+            for (let k = 0; k < 4; k++) {
+                const t = -half + (2 * half) * k / 3;
+                ctx.beginPath();
+                ctx.arc(cx + rdx * t, cy + rdy * t, Math.max(0.9, 0.7 * u), 0, Math.PI * 2);
+                ctx.fill();
+            }
+        } else {
+            // deck: a slightly thicker light stroke, then two dark rails either side
+            const half = 3 * u;                          // ~5–7 px long at s=3
+            const off = 2 * u;
+            h.inkLine([[cx - rdx * half, cy - rdy * half], [cx + rdx * half, cy + rdy * half]],
+                { width: 1.8 * u, wobble: 0.2, color: '#d8c49a', alpha: 0.9, passes: 1 });
+            for (const sgn of [1, -1]) {
+                const ox2 = rvx * off * sgn, oy2 = rvy * off * sgn;
+                h.inkLine([[cx + ox2 - rdx * half, cy + oy2 - rdy * half],
+                           [cx + ox2 + rdx * half, cy + oy2 + rdy * half]],
+                    { width: 1.2 * u, wobble: 0.2, color: '#5a3d22', alpha: 0.95, passes: 1 });
+            }
+        }
+    }
 
     // mountain carets
     ctx.strokeStyle = h.INK;
@@ -587,6 +661,76 @@ export function drawRegion(ctx, model, rng, h, view) {
     ctx.stroke();
     ctx.globalAlpha = 1;
 
+    // dunes: small open arcs (breve marks) in sand
+    ctx.strokeStyle = '#b09a6a';
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    for (const [x, y] of (model.layers.dunes || [])) {
+        const [cx, cy] = px(x, y);
+        const r = rng.float(2.2, 3.6);
+        ctx.moveTo(cx - r, cy);
+        ctx.arc(cx, cy, r, Math.PI, Math.PI * 2, false);   // upper open arc
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // dead trees: bare Y-shape strokes
+    ctx.strokeStyle = '#5b4b3a';
+    ctx.lineWidth = 1;
+    ctx.lineCap = 'round';
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    for (const [x, y] of (model.layers.deadTrees || [])) {
+        const [cx, cy] = px(x, y);
+        const r = rng.float(2.2, 3.4);
+        ctx.moveTo(cx, cy + r);
+        ctx.lineTo(cx, cy - r * 0.2);
+        ctx.lineTo(cx - r * 0.7, cy - r);        // left branch
+        ctx.moveTo(cx, cy - r * 0.2);
+        ctx.lineTo(cx + r * 0.7, cy - r);        // right branch
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // tussocks: 2–3 tiny horizontal dashes
+    ctx.strokeStyle = '#8a9a72';
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    for (const [x, y] of (model.layers.tussocks || [])) {
+        const [cx, cy] = px(x, y);
+        const rows = rng.chance(0.5) ? 3 : 2;
+        for (let i = 0; i < rows; i++) {
+            const dy = (i - (rows - 1) / 2) * 1.6;
+            const w = rng.float(1.6, 2.6);
+            const jx = rng.float(-1, 1);
+            ctx.moveTo(cx - w + jx, cy + dy);
+            ctx.lineTo(cx + w + jx, cy + dy);
+        }
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // vents: tiny circle with a wiggly smoke stroke rising
+    ctx.strokeStyle = '#4a4642';
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.75;
+    for (const [x, y] of (model.layers.vents || [])) {
+        const [cx, cy] = px(x, y);
+        ctx.beginPath();
+        ctx.arc(cx, cy + 1.5, rng.float(1.1, 1.7), 0, Math.PI * 2);
+        ctx.stroke();
+        const sway = rng.float(0.8, 1.6);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx - sway, cy - 2.2);
+        ctx.lineTo(cx + sway, cy - 4.4);
+        ctx.lineTo(cx - sway * 0.6, cy - 6.2);
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
     // settlements
     for (const st of model.entities.filter(e => e.kind === 'settlement')) {
         const [cx, cy] = px(st.x, st.y);
@@ -616,6 +760,12 @@ export function drawRegion(ctx, model, rng, h, view) {
     for (const b of model.entities.filter(e => e.kind === 'biome' && e.name)) {
         const [cx, cy] = px(b.x, b.y);
         h.label(b.name, cx, cy, { size: 13, color: '#5d5133' });
+    }
+
+    // named lakes: italic label (water already in the biome grid)
+    for (const lk of model.entities.filter(e => e.kind === 'lake' && e.name)) {
+        const [cx, cy] = px(lk.x, lk.y);
+        h.label(lk.name, cx, cy, { size: 12, italic: true, color: '#5d5133' });
     }
 }
 
