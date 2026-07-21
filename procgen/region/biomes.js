@@ -10,6 +10,8 @@
 export const BIOME_CODES = [
     'ocean', 'lake', 'beach', 'grassland', 'forest', 'rainforest',
     'desert', 'swamp', 'mountains', 'snow',
+    // appended (never inserted): keep saved seeds stable
+    'taiga', 'tundra', 'savanna', 'badlands', 'ashland', 'blight',
 ];
 
 /** name → code lookup ({ ocean: 0, lake: 1, ... }). */

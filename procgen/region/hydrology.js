@@ -14,8 +14,8 @@
  * ------------------------------------------------------------------ */
 
 const EPS = 1e-7;        // monotone bump that drains flats
-const LAKE_EPS = 4e-4;   // how much fill counts as standing water
-const MIN_LAKE_CELLS = 10;
+const LAKE_EPS = 1e-3;   // how much fill counts as standing water
+const MIN_LAKE_CELLS = 12;
 const SQRT2 = Math.SQRT2;
 
 /* E, SE, S, SW, W, NW, N, NE — fixed order = deterministic ties */

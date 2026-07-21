@@ -1,206 +1,80 @@
 /* ------------------------------------------------------------------
- *  Region / world map generator.
+ *  Region / world map generator (staged pipeline).
  *
- *  fBm heightmap (256×256, in-memory only) with an island/coast/
- *  inland mask → percentile sea level → moisture → biomes → rivers
- *  traced downhill from springs → settlements & POIs by suitability
- *  scoring → named biome blobs → crude road graph.
+ *  terrain (immutable heightmap) → hydrology (lakes, D8 flow, rivers)
+ *  → climate (distance-to-water, temperature, moisture, Whittaker
+ *  biomes + flavor overlays) → features (named biome blobs, POIs)
+ *  → settlements (suitability scoring) → roads (MST + A* routing,
+ *  bridges/fords) → assemble.
  *
- *  1 cell ≈ 1.5 km (layers.cellKm), so the map is ~380×380 km.
+ *  Grid size N comes from p.size (small/medium/large); 1 cell ≈ 1.5 km
+ *  (layers.cellKm). Determinism: the LAYOUT stream keeps a fixed draw
+ *  order, the NAMES stream a fixed naming order (see below), and every
+ *  subsystem derives its own sub-stream — see rng.js.
  * ------------------------------------------------------------------ */
 import { Rng } from './rng.js';
-import { Noise2D } from './noise.js';
 import { makeEnvelope, compass } from './schema.js';
-import { nameFor, biomeName, POI_KINDS } from './names.js';
-import { BIOME_CODES } from './region/biomes.js';
+import { nameFor, riverName, lakeName } from './names.js';
+import { BIOME, BIOME_CODES } from './region/biomes.js';
 import { buildTerrain } from './region/terrain.js';
 import { buildHydrology } from './region/hydrology.js';
+import { buildClimate } from './region/climate.js';
+import { buildFeatures } from './region/features.js';
+import { buildSettlements } from './region/settlements.js';
+import { buildRoads } from './region/roads.js';
 
-const N = 256;
 export { BIOME_CODES };
 
+const SIZE_N = { small: 192, medium: 256, large: 384 };
+
 export function generateRegion(seed, params = {}) {
-    const p = { mask: 'island', water: 0.42, settlements: 'some', ...params };
+    const p = {
+        mask: 'island', water: 0.42, settlements: 'some', size: 'medium',
+        climate: 'temperate', flavor: 'normal', rivers: 'normal', ...params,
+    };
+    const N = SIZE_N[p.size] || SIZE_N.medium;
+
     const model = makeEnvelope('region', seed, p);
     model.size = { w: N, h: N, unit: 'cell' };
 
+    // layout seed string kept EXACTLY as before so old param combos map identically
     const rng = new Rng(`${seed}/layout:${p.mask}:${p.water}:${p.settlements}`);
-    const noiseM = new Noise2D(`${seed}/moisture`);
 
-    /* ---- stage 1: terrain (height is immutable from here on) ---- */
+    /* ---- stage 1: terrain (height immutable from here) ---- */
     const terrain = buildTerrain({ N, seed, p }, rng);
-    const { height, sea, landSpan } = terrain;
-    const hNorm = i => (height[i] - sea) / landSpan;   // 0 at shore, 1 at highest peak
+    const { height, sea, landSpan, slope, volcanoes } = terrain;
 
-    const moist = new Float32Array(N * N);
-    const scale = 1 / 46;
-    for (let y = 0; y < N; y++) {
-        for (let x = 0; x < N; x++) {
-            moist[y * N + x] = noiseM.fbm(x * scale * 1.4, y * scale * 1.4, { octaves: 4 });
-        }
-    }
-
-    /* ---- stage 2: hydrology (lakes, D8 flow, rivers with width) ---- */
+    /* ---- stage 2: hydrology ---- */
     const hydro = buildHydrology({ N, height, sea, p });
-    const { isOcean, lakeMask, isRiver, rivers, lakes } = hydro;
-    // riverbanks read a touch greener (fresh water proxy until the climate stage)
-    for (let i = 0; i < N * N; i++) {
-        if (!isRiver[i] && !lakeMask[i]) continue;
-        const x = i % N, y = (i / N) | 0;
-        for (const [mx, my] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
-            if (mx < 0 || my < 0 || mx >= N || my >= N) continue;
-            moist[my * N + mx] = Math.min(1, moist[my * N + mx] + 0.12);
-        }
-    }
+    const { isOcean, lakeMask, isRiver, flowTo, flowAcc, rivers, lakes, confluences, T } = hydro;
 
-    /* ---- biomes ---- */
-    const biome = new Uint8Array(N * N);
-    const code = name => BIOME_CODES.indexOf(name);
-    for (let i = 0; i < N * N; i++) {
-        if (isOcean[i]) { biome[i] = code('ocean'); continue; }
-        if (lakeMask[i]) { biome[i] = code('lake'); continue; }
-        const h = hNorm(i), m = moist[i];
-        if (h > 0.8) biome[i] = code('snow');
-        else if (h > 0.6) biome[i] = code('mountains');
-        else if (h < 0.035) biome[i] = code('beach');
-        else if (m < 0.34) biome[i] = code('desert');
-        else if (m < 0.55) biome[i] = code('grassland');
-        else if (m < 0.75) biome[i] = code('forest');
-        else biome[i] = (h < 0.12) ? code('swamp') : code('rainforest');
-    }
+    /* ---- stage 3: climate + biomes ---- */
+    const wind = rng.int(0, 7);   // upwind direction for rain shadow (LAYOUT draw)
+    const climate = buildClimate({
+        N, seed, p, height, sea, landSpan, slope, volcanoes,
+        isOcean, lakeMask, isRiver, wind,
+    });
+    const { distWater, biome } = climate;
 
-    /* ---- settlements by suitability scoring ---- */
+    /* ---- NAMES stream: region → settlements → blobs → rivers → lakes ---- */
     const nameRng = new Rng(`${seed}/names`);
-    const riverCells = new Set();
-    for (let i = 0; i < N * N; i++) if (isRiver[i]) riverCells.add(i);
-    const nearRiver = (x, y, d) => {
-        for (let dy = -d; dy <= d; dy++) for (let dx = -d; dx <= d; dx++) {
-            if (riverCells.has((y + dy) * N + (x + dx))) return true;
-        }
-        return false;
-    };
-    const nearBiome = (x, y, d, codes) => {
-        for (let dy = -d; dy <= d; dy += 2) for (let dx = -d; dx <= d; dx += 2) {
-            const nx = x + dx, ny = y + dy;
-            if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
-            if (codes.includes(biome[ny * N + nx])) return true;
-        }
-        return false;
-    };
+    model.name = nameFor(nameRng, 'region');
 
-    const scored = [];
-    const badLand = [code('ocean'), code('lake'), code('mountains'), code('snow'), code('swamp')];
-    for (let y = 10; y < N - 10; y += 4) {
-        for (let x = 10; x < N - 10; x += 4) {
-            const i = y * N + x;
-            if (badLand.includes(biome[i])) continue;
-            let s = 1 + rng.float(0, 0.5);
-            if (nearRiver(x, y, 4)) s += 2;
-            if (nearBiome(x, y, 6, [code('ocean')])) s += 1.5;
-            if (biome[i] === code('desert')) s -= 1;
-            scored.push({ x, y, s });
-        }
-    }
-    scored.sort((a, b) => b.s - a.s || a.y - b.y || a.x - b.x);
-
-    const counts = { few: [1, 2, 2], some: [1, 3, 4], many: [2, 4, 6] }[p.settlements] || [1, 3, 4];
-    const settlements = [];
-    const wanted = [['city', counts[0]], ['town', counts[1]], ['village', counts[2]]];
-    for (const [kind, n] of wanted) {
-        let placed = 0;
-        for (const c of scored) {
-            if (placed >= n) break;
-            if (settlements.some(s => Math.hypot(s.x - c.x, s.y - c.y) < 28)) continue;
-            const tags = [];
-            if (nearRiver(c.x, c.y, 4)) tags.push('on a river');
-            if (nearBiome(c.x, c.y, 6, [code('ocean')])) tags.push('coastal');
-            if (nearBiome(c.x, c.y, 8, [code('mountains')])) tags.push('in the foothills');
-            settlements.push({
-                x: c.x, y: c.y, kind,
-                name: nameFor(nameRng, kind === 'village' ? 'village' : 'city'),
-                tags,
-            });
-            placed++;
-        }
-    }
-
-    /* ---- POIs ---- */
-    const pois = [];
-    const poiKinds = rng.shuffle(POI_KINDS);
-    const nPois = rng.int(3, 6);
-    for (const c of scored.slice().reverse()) {   // less "ideal" spots feel wilder
-        if (pois.length >= nPois) break;
-        if (settlements.some(s => Math.hypot(s.x - c.x, s.y - c.y) < 20)) continue;
-        if (pois.some(s => Math.hypot(s.x - c.x, s.y - c.y) < 20)) continue;
-        pois.push({ x: c.x, y: c.y, kind: poiKinds[pois.length % poiKinds.length] });
-    }
-
-    /* ---- named biome blobs (BFS on a 4× downsample) ---- */
-    const blobs = [];
-    {
-        const M = N / 4;
-        const down = new Uint8Array(M * M);
-        for (let y = 0; y < M; y++) for (let x = 0; x < M; x++) down[y * M + x] = biome[(y * 4) * N + x * 4];
-        const nameable = [code('forest'), code('rainforest'), code('swamp'), code('mountains'), code('desert')];
-        const seen = new Uint8Array(M * M);
-        for (let y = 0; y < M; y++) for (let x = 0; x < M; x++) {
-            const i = y * M + x;
-            if (seen[i] || !nameable.includes(down[i])) continue;
-            const b = down[i];
-            const q = [i];
-            seen[i] = 1;
-            let size = 0, sx = 0, sy = 0;
-            for (let qi = 0; qi < q.length; qi++) {
-                const ci = q[qi], cx = ci % M, cy = (ci / M) | 0;
-                size++; sx += cx; sy += cy;
-                for (const [nx, ny] of [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]]) {
-                    if (nx < 0 || ny < 0 || nx >= M || ny >= M) continue;
-                    const ni = ny * M + nx;
-                    if (!seen[ni] && down[ni] === b) { seen[ni] = 1; q.push(ni); }
-                }
-            }
-            if (size >= 55) blobs.push({ biome: BIOME_CODES[b], x: (sx / size) * 4, y: (sy / size) * 4, cells: size * 16 });
-        }
-        blobs.sort((a, b) => b.cells - a.cells);
-        blobs.length = Math.min(blobs.length, 5);
-        for (const b of blobs) b.name = biomeName(nameRng, b.biome);
-    }
-
-    /* ---- roads: every settlement → nearest bigger neighbor ---- */
-    const rank = { city: 3, town: 2, village: 1 };
-    const roadEdges = [];
-    const roads = [];
-    settlements.forEach((s, i) => {
-        let best = -1, bd = Infinity;
-        settlements.forEach((o, j) => {
-            if (i === j || rank[o.kind] <= rank[s.kind]) return;
-            const d = Math.hypot(o.x - s.x, o.y - s.y);
-            if (d < bd) { bd = d; best = j; }
-        });
-        if (best < 0 && s.kind !== 'city') {   // no bigger one → nearest any
-            settlements.forEach((o, j) => {
-                if (i === j) return;
-                const d = Math.hypot(o.x - s.x, o.y - s.y);
-                if (d < bd) { bd = d; best = j; }
-            });
-        }
-        if (best < 0) return;
-        const o = settlements[best];
-        if (roadEdges.some(e => (e.ai === best && e.bi === i))) return;
-        roadEdges.push({ ai: i, bi: best });
-        // gentle two-midpoint bend
-        const mx1 = s.x + (o.x - s.x) / 3, my1 = s.y + (o.y - s.y) / 3;
-        const mx2 = s.x + (o.x - s.x) * 2 / 3, my2 = s.y + (o.y - s.y) * 2 / 3;
-        const nx = -(o.y - s.y), ny = o.x - s.x;
-        const nl = Math.hypot(nx, ny) || 1;
-        const b1 = rng.float(-8, 8), b2 = rng.float(-8, 8);
-        roads.push({
-            pts: [[s.x, s.y], [mx1 + nx / nl * b1, my1 + ny / nl * b1], [mx2 + nx / nl * b2, my2 + ny / nl * b2], [o.x, o.y]],
-        });
+    /* ---- stage 5: settlements (before features: layout floats, then POI draws) ---- */
+    const { settlements, scored } = buildSettlements({
+        N, p, biome, slope, distWater, isOcean, lakeMask, isRiver, confluences, rng, nameRng,
     });
 
-    /* ---- assemble ---- */
-    model.name = nameFor(nameRng, 'region');
+    /* ---- stage 4: features (blob names after settlement names; POI count on layout) ---- */
+    const { blobs, pois } = buildFeatures({ N, biome, settlements, scored, rng, nameRng });
+
+    /* ---- stage 6: roads + bridges ---- */
+    const { roads, bridges, edges } = buildRoads({
+        N, settlements, height, sea, landSpan, biome,
+        isOcean, lakeMask, isRiver, flowTo, flowAcc, T, rivers,
+    });
+
+    /* ================= assemble ================= */
     settlements.forEach((s, i) => model.entities.push({
         id: 's' + (i + 1), kind: 'settlement', name: s.name, purpose: s.kind,
         x: s.x, y: s.y, tags: s.tags,
@@ -209,46 +83,99 @@ export function generateRegion(seed, params = {}) {
         id: 'p' + (i + 1), kind: 'poi', purpose: s.kind, x: s.x, y: s.y,
         name: null, tags: [],
     }));
+
+    // river names: top 4 by maxAcc, drawn in ENTITY order
+    const top4 = rivers.map((r, i) => i)
+        .sort((a, b) => rivers[b].maxAcc - rivers[a].maxAcc || a - b)
+        .slice(0, 4);
+    const top4set = new Set(top4);
     rivers.forEach((r, i) => model.entities.push({
-        id: 'rv' + (i + 1), kind: 'river', pts: r.pts,
+        id: 'rv' + (i + 1), kind: 'river',
+        name: top4set.has(i) ? riverName(nameRng) : null,
+        pts: r.pts,
         tags: r.tags.map(t =>
             t.startsWith('to-lake:') ? 'to-lake:lk' + t.slice(8)
                 : t.startsWith('tributary:') ? 'tributary:rv' + (Number(t.slice(10)) + 1)
                     : t),
     }));
-    lakes.forEach(l => model.entities.push({
-        id: 'lk' + l.id, kind: 'lake', name: null,
+
+    // lakes: emit top 8 by cells; top 3 named (drawn in size order)
+    const lakesBySize = [...lakes].sort((a, b) => b.cells - a.cells || a.id - b.id);
+    const lakeNameById = new Map();
+    for (let k = 0; k < Math.min(3, lakesBySize.length); k++) lakeNameById.set(lakesBySize[k].id, lakeName(nameRng));
+    lakesBySize.slice(0, 8).forEach(l => model.entities.push({
+        id: 'lk' + l.id, kind: 'lake', name: lakeNameById.get(l.id) || null,
         x: Math.round(l.x), y: Math.round(l.y), w: l.cells, tags: [],
     }));
+
     blobs.forEach((b, i) => model.entities.push({
         id: 'b' + (i + 1), kind: 'biome', purpose: b.biome, name: b.name,
         x: Math.round(b.x), y: Math.round(b.y), tags: [],
     }));
     roads.forEach((r, i) => model.entities.push({ id: 'rd' + (i + 1), kind: 'road', pts: r.pts }));
-    model.edges = roadEdges.map(e => ({
+    bridges.forEach((br, i) => model.entities.push({
+        id: 'br' + (i + 1), kind: 'bridge', purpose: br.kind, x: br.x, y: br.y, angle: br.angle,
+        road: 'rd' + (br.roadIdx + 1), river: br.riverIdx >= 0 ? 'rv' + (br.riverIdx + 1) : null,
+        tags: [],
+    }));
+
+    model.edges = edges.map(e => ({
         a: 's' + (e.ai + 1), b: 's' + (e.bi + 1), kind: 'road',
         dir: compass(settlements[e.ai].x, settlements[e.ai].y, settlements[e.bi].x, settlements[e.bi].y),
     }));
 
-    // render-only layers (never serialized: compactJson strips them)
+    /* ---- render-only layers (stripped from JSON export) ---- */
     model.layers.N = N;
     model.layers.cellKm = 1.5;
     model.layers.biomes = biome;
+
+    const glyph = rng.sub('glyphs');
+    const isCode = (i, ...codes) => codes.includes(biome[i]);
+
     const peaks = [];
     for (let y = 4; y < N - 4; y += 3) for (let x = 4; x < N - 4; x += 3) {
         const i = y * N + x;
-        if (biome[i] === code('mountains') || biome[i] === code('snow')) {
-            if (peaks.every(pk => Math.hypot(pk[0] - x, pk[1] - y) >= 6) && rng.chance(0.6)) peaks.push([x, y]);
+        if (isCode(i, BIOME.mountains, BIOME.snow)
+            && peaks.every(pk => Math.hypot(pk[0] - x, pk[1] - y) >= 6) && glyph.chance(0.6)) {
+            peaks.push([x, y]);
         }
     }
     model.layers.peaks = peaks;
+
     const trees = [];
     for (let y = 3; y < N - 3; y += 4) for (let x = 3; x < N - 3; x += 4) {
         const i = y * N + x;
-        if ((biome[i] === code('forest') || biome[i] === code('rainforest')) && rng.chance(0.55)) {
-            trees.push([x + rng.float(-1.5, 1.5), y + rng.float(-1.5, 1.5)]);
+        if (isCode(i, BIOME.forest, BIOME.rainforest, BIOME.taiga) && glyph.chance(0.55)) {
+            trees.push([x + glyph.float(-1.5, 1.5), y + glyph.float(-1.5, 1.5)]);
         }
     }
     model.layers.trees = trees;
+
+    const dunes = [];
+    for (let y = 3; y < N - 3; y += 5) for (let x = 3; x < N - 3; x += 5) {
+        if (isCode(y * N + x, BIOME.desert) && glyph.chance(0.5)) dunes.push([x, y]);
+    }
+    model.layers.dunes = dunes;
+
+    const deadTrees = [];
+    for (let y = 3; y < N - 3; y += 5) for (let x = 3; x < N - 3; x += 5) {
+        const i = y * N + x;
+        if (isCode(i, BIOME.blight) && glyph.chance(0.5)) deadTrees.push([x + glyph.float(-1.5, 1.5), y + glyph.float(-1.5, 1.5)]);
+    }
+    model.layers.deadTrees = deadTrees;
+
+    const tussocks = [];
+    for (let y = 3; y < N - 3; y += 6) for (let x = 3; x < N - 3; x += 6) {
+        const i = y * N + x;
+        if (isCode(i, BIOME.tundra) && glyph.chance(0.5)) tussocks.push([x + glyph.float(-1.5, 1.5), y + glyph.float(-1.5, 1.5)]);
+    }
+    model.layers.tussocks = tussocks;
+
+    const vents = [];
+    for (let y = 3; y < N - 3; y += 7) for (let x = 3; x < N - 3; x += 7) {
+        if (isCode(y * N + x, BIOME.ashland) && glyph.chance(0.35)) vents.push([x, y]);
+    }
+    model.layers.vents = vents;
+
     return model;
 }

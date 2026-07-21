@@ -151,6 +151,8 @@ export const BIOME_LABELS = {
     ocean: 'open water', lake: 'lake', beach: 'shoreline',
     grassland: 'grassland', forest: 'forest', rainforest: 'deep forest',
     desert: 'dry steppe', swamp: 'swamp', mountains: 'mountains', snow: 'snowbound peaks',
+    taiga: 'pine forest', tundra: 'frozen tundra', savanna: 'savanna',
+    badlands: 'badlands', ashland: 'volcanic ashland', blight: 'blighted waste',
 };
 
 const BIOME_NAME_SUFFIX = {
@@ -161,6 +163,12 @@ const BIOME_NAME_SUFFIX = {
     snow: ['peaks', 'crown'],
     desert: ['wastes', 'flats'],
     grassland: ['meads', 'downs', 'plain'],
+    taiga: ['wood', 'pines'],
+    tundra: ['barrens', 'waste'],
+    savanna: ['plains', 'veld'],
+    badlands: ['scars', 'mesas'],
+    ashland: ['ashes', 'cinders'],
+    blight: ['blight', 'rot'],
 };
 
 /** Named biome patch ("the Eldwood") — null for unnameable biomes. */
@@ -172,3 +180,38 @@ export function biomeName(rng, biome) {
 }
 
 export const POI_KINDS = ['ruin', 'watchtower', 'shrine', 'cave', 'standing stones', 'hermitage'];
+
+/* ------------------------------------------------------------------
+ *  Region: hydronyms (river / lake names) & biome-keyed POI kinds
+ * ------------------------------------------------------------------ */
+
+/* settlement suffixes stripped so a river reads as a natural feature */
+const HYDRO_STRIP = /(dor|wick|holm|mere|fell|burg|stead|haven|moor|ford|gate|march|crag|deep|watch|vale|shaw|den|port|ley)$/;
+const RIVER_END = ['run', 'water', 'flow', 'rush', 'wash', 'stream'];
+const LAKE_END = ['mere', 'tarn', 'loch'];
+
+/** River name, e.g. "the Ashwater". */
+export function riverName(rng) {
+    const base = word(rng, { midChance: 0.3 }).replace(HYDRO_STRIP, '');
+    return `the ${base}${rng.pick(RIVER_END)}`;
+}
+
+/** Lake name, e.g. "Lake Bel" or "Belmere". */
+export function lakeName(rng) {
+    const base = word(rng, { midChance: 0.3 }).replace(HYDRO_STRIP, '');
+    return rng.chance(0.5) ? `Lake ${base}` : `${base}${rng.pick(LAKE_END)}`;
+}
+
+/** POI kinds keyed by the biome at the site (fallback: POI_KINDS). */
+export const REGION_POI = {
+    desert: ['oasis', 'buried ruin', 'caravanserai'],
+    badlands: ['hoodoo spires', 'abandoned mine', 'dry gulch camp'],
+    ashland: ['geyser field', 'lava tube', 'obsidian flow'],
+    blight: ['blighted ruin', 'bone field', 'twisted grove'],
+    swamp: ['sunken shrine', 'witch hut', 'drowned village'],
+    mountains: ['high pass', 'watchtower', 'hermitage'],
+    tundra: ['mammoth graveyard', 'frozen cairn', 'hunter camp'],
+    taiga: ['trapper lodge', 'old shrine', 'logging camp'],
+    savanna: ['watering hole', 'termite spires', 'hunting ground'],
+    default: POI_KINDS,
+};
