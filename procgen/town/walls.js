@@ -30,7 +30,10 @@ export function buildWalls(ctx) {
         const pts = [];
         for (let i = 0; i < nPts; i++) {
             const a = (Math.PI * 2 * i) / nPts;
-            const r = radius * rng.float(0.93, 1.07);
+            let r = radius * rng.float(0.93, 1.07);
+            // pull the ring out of the water: the wall hugs the shore instead
+            // of striding into the sea (step inward until the vertex is dry)
+            while (r > 30 && ctx.water.inWater(plaza.x + Math.cos(a) * r, plaza.y + Math.sin(a) * r)) r -= 10;
             pts.push([plaza.x + Math.cos(a) * r, plaza.y + Math.sin(a) * r]);
         }
         const ring = [...pts, pts[0]];   // closed for intersection tests
