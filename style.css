@@ -16,9 +16,9 @@
 .mg-genpopup { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .mg-genpopup .mg-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .mg-genpopup .mg-seed { width: 9em; }
+/* the dialog flags size the popup; content always fills it (no vw!) */
 .mg-genpopup .mg-frame {
-    width: 80vw;
-    max-width: 100%;
+    width: 100%;
     height: 72vh;
     border: 0;
     border-radius: 6px;
@@ -106,6 +106,7 @@
 }
 .mg-genpopup .mg-seedwrap { flex: 0 1 auto; }
 .mg-genpopup .mg-seedwrap .mg-seed { width: 9em; flex: 0 1 9em; min-width: 6em; }
+.mg-previewwrap { flex: 1 1 auto; min-height: 0; display: flex; }
 .mg-local-preview {
     flex: 1 1 auto;
     min-height: 0;
@@ -115,6 +116,10 @@
     border-radius: 6px;
     background: #e8dcc0;
 }
+/* very wide maps (multi-floor interiors): natural width + horizontal
+   scroll instead of shrinking to an unreadable strip on phones */
+.mg-previewwrap.mg-wide { display: block; overflow-x: auto; }
+.mg-previewwrap.mg-wide .mg-local-preview { height: 100%; width: auto; max-width: none; }
 .mg-panel .mg-panel-body .mg-localimg {
     width: 100%; height: 100%;
     object-fit: contain;
@@ -129,6 +134,8 @@
     object-fit: contain;
     border-radius: 6px; background: #e8dcc0;
 }
+.mg-lightbox.mg-wide { display: block; overflow-x: auto; }
+.mg-lightbox.mg-wide img { height: 76dvh; width: auto; max-width: none; }
 .mg-editor .mg-seedinfo { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* .menu_button defaults to width:min-content in ST — without nowrap,
    long labels fold into a vertical letter-column. Rows wrap instead. */
@@ -145,7 +152,7 @@
     .mg-genpopup .mg-ctl input[type="checkbox"].mg-param { width: 24px; height: 24px; }
     .mg-genpopup .mg-chip {
         display: inline-flex; align-items: center;
-        min-height: 36px; padding: 4px 14px;
+        min-height: 40px; padding: 4px 14px;
     }
     .mg-local-preview { max-height: 55dvh; }
     /* the dialog itself is already capped at 100dvw - 2em */
@@ -203,7 +210,10 @@
 
 /* ---- mobile ---- */
 @media (max-width: 600px) {
-    .mg-genpopup .mg-frame { width: 92vw; height: 64vh; }
+    .mg-genpopup .mg-frame { height: 64vh; }
     .mg-card-actions .menu_button { min-width: 44px; min-height: 44px; }
     .mg-depthwrap { margin-left: 0; }
+    .mg-panel .mg-panel-bar .menu_button { min-width: 40px; min-height: 40px; }
+    .mg-panel .mg-panel-actions .menu_button { min-height: 40px; }
+    .mg-zoom-img { touch-action: manipulation; }   /* tap = pick, no dbl-tap zoom */
 }

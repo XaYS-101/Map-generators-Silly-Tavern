@@ -84,6 +84,26 @@ function makeMovable(el, handle, key) {
     handle.addEventListener('pointercancel', end);
 }
 
+/* A rotated or resized viewport can strand a dragged panel off-screen
+ * (phones especially) — pull every panel back into view. */
+let reclampTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(reclampTimer);
+    reclampTimer = setTimeout(() => {
+        for (const el of document.querySelectorAll('.mg-panel')) {
+            const r = el.getBoundingClientRect();
+            if (!r.width) continue;
+            const nl = Math.max(0, Math.min(r.left, window.innerWidth - 60));
+            const nt = Math.max(0, Math.min(r.top, window.innerHeight - 30));
+            if (nl !== r.left || nt !== r.top) {
+                el.style.right = 'auto';
+                el.style.left = `${nl}px`;
+                el.style.top = `${nt}px`;
+            }
+        }
+    }, 150);
+});
+
 function createPanel(cfg) {
     // cfg = { key:'a'|'b', id:'mapGenPanel'|'mapGenPanel2' }
     const sel = `#${cfg.id}`;

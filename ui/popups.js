@@ -106,6 +106,7 @@ async function openLocalGeneratorPopup(generatorKey, existingMap = null) {
     }
 
     const $img = $('<img class="mg-local-preview" alt="map preview" />');
+    const $prev = $('<div class="mg-previewwrap"></div>').append($img);
 
     function currentParams() {
         const p = {};
@@ -118,8 +119,12 @@ async function openLocalGeneratorPopup(generatorKey, existingMap = null) {
     }
     function refresh() {
         try {
-            const src = Local.getRenderDataUrl({ generator: generatorKey, seed, params: currentParams() });
+            const probe = { generator: generatorKey, seed, params: currentParams() };
+            const src = Local.getRenderDataUrl(probe);
             if (src) $img.attr('src', src);
+            // multi-floor interiors are very wide — scroll instead of shrinking
+            const canvas = Local.getRenderCanvas(probe);
+            $prev.toggleClass('mg-wide', !!canvas && canvas.width > canvas.height * 1.6);
         } catch (e) {
             console.error('[MapGenerators] local render failed', e);
         }
@@ -128,7 +133,7 @@ async function openLocalGeneratorPopup(generatorKey, existingMap = null) {
     $seed.on('change', () => { seed = String($seed.val()).trim() || seed; refresh(); });
     for (const { $c } of controls) $c.on('change', refresh);
 
-    $wrap.append($bar, ...chipRows, $img);
+    $wrap.append($bar, ...chipRows, $prev);
     refresh();
 
     const result = await callGenericPopup($wrap, POPUP_TYPE.CONFIRM, '', {
@@ -307,7 +312,11 @@ export async function createNewMap() {
 export async function openLocalLightbox(map) {
     const src = Local.getRenderDataUrl(map);
     if (!src) return;
-    const $box = $('<div class="mg-lightbox"></div>').append(
+    const canvas = Local.getRenderCanvas(map);
+    // very wide maps (multi-floor interiors) shrink to nothing under
+    // object-fit on a portrait phone — let them scroll horizontally instead
+    const wide = !!canvas && canvas.width > canvas.height * 1.6;
+    const $box = $('<div class="mg-lightbox"></div>').toggleClass('mg-wide', wide).append(
         $('<img alt="map" />').attr('src', src),
     );
     await callGenericPopup($box, POPUP_TYPE.TEXT, '', {
