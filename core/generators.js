@@ -126,7 +126,15 @@ export const GENERATORS = {
         key: 'linterior', label: 'Building Interior (local)', embed: 'local', base: '',
         seedable: true, params: [],
         paramSchema: [
-            { k: 'building', type: 'select', opts: ['tavern', 'house', 'shop', 'temple', 'manor', 'keep'], def: 'tavern', i18n: 'p_building' },
+            {
+                k: 'building', type: 'select',
+                opts: ['tavern', 'house', 'shop', 'temple', 'manor', 'keep',
+                    'smithy', 'barracks', 'warehouse', 'caravanserai', 'mill'],
+                def: 'tavern', i18n: 'p_building',
+            },
+            { k: 'size', type: 'select', opts: ['small', 'medium', 'large'], def: 'medium', i18n: 'p_size' },
+            { k: 'wealth', type: 'select', opts: ['poor', 'average', 'wealthy'], def: 'average', i18n: 'p_wealth' },
+            { k: 'condition', type: 'select', opts: ['lived-in', 'abandoned', 'looted'], def: 'lived-in', i18n: 'p_condition' },
         ],
     },
 

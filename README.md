@@ -159,6 +159,19 @@ code. Please credit Watabou and consider supporting the tools on
 - Deleting a map or disabling its memory only *disables* its lorebook entry
   (never deletes it), so nothing is lost by accident.
 
+## Changed in 1.10.0
+
+- **Building interiors overhauled.** Eleven building types (adding smithy,
+  barracks, warehouse, caravanserai with an open courtyard, and mill), multiple
+  floors — cellars and upper storeys drawn side by side with stairs linking
+  them — plus new **Size**, **Wealth** and **Condition** params. Interiors are
+  now inhabited: a named owner and household with quirks, typed room content
+  (furnishings by wealth, `[hidden]` caches, locked doors whose keys hang
+  somewhere findable, no softlocks), and condition traces — warm hearth embers
+  in a lived-in house, dust sheets in an abandoned one, forced doors after a
+  looting — capped by a one-line story hook per building. Regenerated interiors
+  will look different; saved descriptions and thumbnails are untouched.
+
 ## Changed in 1.9.0
 
 - **Town / Village overhauled.** A staged pipeline with real water data (no more

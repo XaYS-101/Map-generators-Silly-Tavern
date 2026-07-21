@@ -14,7 +14,7 @@ import { generateWorld } from './gen-world.js';
 import { renderMap } from './render.js';
 import { describe, compactJson } from './describe.js';
 
-const GEN_VERSION = 7;
+const GEN_VERSION = 8;
 
 const TYPE_BY_KEY = { ldungeon: 'dungeon', lregion: 'region', ltown: 'town', linterior: 'interior', lworld: 'world' };
 const GEN_BY_TYPE = { dungeon: generateDungeon, region: generateRegion, town: generateTown, interior: generateInterior, world: generateWorld };
