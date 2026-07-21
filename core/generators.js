@@ -84,11 +84,15 @@ export const GENERATORS = {
         ],
     },
     lregion: {
-        key: 'lregion', label: 'Region / World (local)', embed: 'local', base: '',
+        key: 'lregion', label: 'Region (local)', embed: 'local', base: '',
         seedable: true, params: [],
         paramSchema: [
             { k: 'mask', type: 'select', opts: ['island', 'coast', 'inland'], def: 'island', i18n: 'p_mask' },
             { k: 'water', type: 'range', min: 0.15, max: 0.65, step: 0.05, def: 0.42, i18n: 'p_water' },
+            { k: 'size', type: 'select', opts: ['small', 'medium', 'large'], def: 'medium', i18n: 'p_size' },
+            { k: 'climate', type: 'select', opts: ['cold', 'temperate', 'hot'], def: 'temperate', i18n: 'p_climate' },
+            { k: 'flavor', type: 'select', opts: ['normal', 'wasteland', 'volcanic', 'blighted'], def: 'normal', i18n: 'p_flavor' },
+            { k: 'rivers', type: 'select', opts: ['dry', 'normal', 'wet'], def: 'normal', i18n: 'p_rivers' },
             { k: 'settlements', type: 'select', opts: ['few', 'some', 'many'], def: 'some', i18n: 'p_settlements' },
         ],
     },

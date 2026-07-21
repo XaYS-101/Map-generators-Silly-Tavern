@@ -19,7 +19,7 @@ https://github.com/XaYS-101/Map-generators-Silly-Tavern
 - **Built-in local generators (since 1.1)**: four fully offline procedural
   generators written for this extension (no iframe, no internet).
   **Dungeon** (BSP rooms & corridors, or cellular-automata caves),
-  **Region / World** (noise heightmap into biomes, rivers, settlements, roads),
+  **Region** (staged pipeline: hydrology, climate biomes, settlements, roads),
   **Town / Village** (road network, buildings, landmarks, optional walls) and
   **Building Interior** (floor plans: tavern, house, shop, temple, manor, keep).
   Every local map is deterministic from its seed + options and produces all
@@ -55,6 +55,18 @@ https://github.com/XaYS-101/Map-generators-Silly-Tavern
   lethal the place is, and a free **Tags** field biases the contents
   (`undead, treasure, deadly, empty`) or reshapes the dungeon itself
   (`den`, `huge`, `small`, `large`, `loops`, `linear`).
+- **The local region, in detail** (reworked in 1.7.0): the region generator now
+  runs as a staged pipeline instead of a single heightmap pass. Realistic
+  **hydrology** carves lakes and rivers that widen as they flow downstream and
+  fan out into deltas at the coast. A **climate** model (cold / temperate / hot)
+  combined with elevation and moisture paints **16 biomes**, including tundra,
+  taiga, savanna, badlands, volcanic ashland and blight. A **World flavor**
+  preset reshapes the whole map — `normal`, `wasteland`, `volcanic` or
+  `blighted` — so you can roll a green frontier or a scorched wasteland from the
+  same seed. Roads are laid with terrain-aware A* pathfinding that prefers
+  gentle ground and crosses rivers only at **bridges or fords**. A **Rivers**
+  control (dry / normal / wet) and a **map size** (small / medium / large)
+  round out the options.
 - **Floating viewer beside the chat**: a draggable, resizable window (touch &
   mouse; drag it by its toolbar or the grip strip) that keeps a map next to
   the chat so you see both at once. Open it from the wand menu (🗺️). You can
@@ -130,6 +142,17 @@ code. Please credit Watabou and consider supporting the tools on
 - AI vision requires a multimodal model configured in SillyTavern.
 - Deleting a map or disabling its memory only *disables* its lorebook entry
   (never deletes it), so nothing is lost by accident.
+
+## Changed in 1.7.0
+
+- The local **Region** generator was overhauled (new staged pipeline). Seeds now
+  feed the new hydrology/climate/roads pipeline, so **regenerating an existing
+  region map will produce a different-looking map** than in earlier versions.
+  Your **saved descriptions and thumbnails are untouched** — nothing is
+  rewritten until you actually reroll a map.
+- **Region and World are now split.** This generator is just **Region (local)**
+  (it was labelled *Region / World* before). A separate large-scale **World**
+  generator is planned for a future version.
 
 ## License
 
