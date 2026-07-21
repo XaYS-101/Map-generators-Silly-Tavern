@@ -335,3 +335,120 @@ export function ruinName(rng, empire) {
     const site = rng.pick(RUIN_SITE);
     return empire ? `${site} of ${String(empire).replace(/^the /, '')}` : site;
 }
+
+/* ------------------------------------------------------------------
+ *  Town life layer: deities, guild crafts, caravanserai flavor, and
+ *  resident traits. APPENDED — every table above is untouched, so the
+ *  region/world snapshots keep producing identical output. Consumed by
+ *  town/life.js from the NAMES stream in a single fixed order.
+ * ------------------------------------------------------------------ */
+
+const DEITY_ADJ = ['Pale', 'Deep', 'Golden', 'Silent', 'Weeping', 'Radiant',
+    'Hollow', 'Iron', 'Ashen', 'Everliving', 'Twin', 'Nameless', 'Drowned', 'Kindly'];
+const DEITY_ASPECT = ['Mother', 'Father', 'Watcher', 'Judge', 'Maiden', 'Smith',
+    'Shepherd', 'Warden', 'Lantern', 'Twins', 'Stranger', 'Widow', 'Mariner'];
+const DEITY_DOMAIN = ['the Deep', 'the Dawn', 'the Harvest', 'the Storm', 'the Grave',
+    'the Forge', 'the Tides', 'the Wilds', 'the Hearth', 'the Long Road', 'the Green', 'the Ember'];
+
+/** Deity name for a temple/shrine dedication, e.g. "the Pale Mother" or
+ *  "Torvan of the Deep". */
+export function deityName(rng) {
+    return rng.chance(0.5)
+        ? `the ${rng.pick(DEITY_ADJ)} ${rng.pick(DEITY_ASPECT)}`
+        : `${word(rng, { midChance: 0.3 })} of ${rng.pick(DEITY_DOMAIN)}`;
+}
+
+/** Guild trades — for "<Craft> Guildhall". */
+export const GUILD_CRAFTS = ['Masons', 'Weavers', 'Coopers', 'Tanners', 'Smiths',
+    'Merchants', 'Goldsmiths', 'Stonecutters', 'Potters', 'Vintners', 'Fletchers',
+    'Wrights', 'Bakers', 'Dyers'];
+
+/** Caravanserai adjectives — for "The <Adj> Caravanserai". */
+export const CARAVANSERAI_ADJ = ['Weary', 'Long', 'Distant', 'Golden', 'Dusty',
+    'Painted', 'Amber', 'Wandering', 'Silk', 'Spice'];
+
+/** Fortress words — for "Castle <Word>" / "The <Word> Keep". */
+export const CITADEL_WORD = ['Blackstone', 'Ironhold', 'Grimwatch', 'Highgate',
+    'Ravenspire', 'Dourhold', 'Stormcrag', 'Wolfden'];
+
+/** Short evocative resident traits, keyed by role with a rich default pool.
+ *  One clause each; life.js picks with the NAMES stream. */
+export const RESIDENT_TRAITS = {
+    innkeeper: [
+        'never forgets a debt', 'pours a heavy hand for regulars', 'hears every rumor first',
+        'keeps a cudgel behind the bar', 'waters the cheap wine, not the good',
+        'widowed twice, unbothered', 'remembers every face, few names', 'runs an honest game of dice',
+    ],
+    blacksmith: [
+        'deaf in one ear, sharp in both eyes', 'hums the same three notes all day',
+        'never quotes the same price twice', 'missing two fingers, misses nothing',
+        'proud of a blade sold to a lord', 'takes payment in favors as often as coin',
+        'arms like knotted rope', 'apprenticed to a dead master, still argues with him',
+    ],
+    priest: [
+        'quotes scripture no one can find', 'weeps at every wedding and funeral alike',
+        'suspiciously well-fed for a fasting month', 'keeps the poor box heavier than the altar',
+        'blesses coin and dagger with equal grace', 'has not slept a full night in years',
+        'buries the dead cheap, marries the living dear', 'believes the old gods still listen',
+    ],
+    abbot: [
+        'has taken a vow of silence, mostly', 'copies books faster than he reads them',
+        'brews a beer worth the pilgrimage', 'rules the cloister like a small kingdom',
+        'gentle with novices, ruthless with debtors', 'knows which relics are real',
+    ],
+    noble: [
+        'has not paid a tradesman in a year', 'collects grievances like others collect coin',
+        'quietly ruined, loudly proud', 'married for land, regrets it daily',
+        'keeps a huntsman busier than a steward', 'signs everything, reads nothing',
+        'terrified of the family they descend from', 'generous only when watched',
+    ],
+    castellan: [
+        'walks the walls at the same hour nightly', 'trusts stone more than men',
+        'keeps the garrison lean and loyal', 'holds a key to a door no one remembers',
+        'answers to a lord who never visits', 'counts every arrow in the store',
+    ],
+    captain: [
+        'drills the watch harder than a war', 'owes gambling debts to half the barracks',
+        'promoted for a battle they slept through', 'fair with recruits, savage with deserters',
+        'keeps a map of a country that no longer exists', 'never removes their gorget, even at supper',
+    ],
+    merchant: [
+        'weighs every coin with narrowed eyes', 'smuggles a little, denies it warmly',
+        'speaks four tongues and trusts none', 'always one caravan from ruin or fortune',
+        'keeps two ledgers, shows one', 'wears last season’s fashion, this season’s rings',
+    ],
+    harbormaster: [
+        'knows every hull that ever dodged the toll', 'reads the tide like a ledger',
+        'takes a cut of everything that floats', 'lost a leg to a capstan, not a battle',
+        'keeps the lamp lit out of superstition', 'remembers ships longer than sailors',
+    ],
+    fishmonger: [
+        'weighs every catch twice', 'smells of brine and shrewd bargains',
+        'undercuts rivals with a smile', 'saves the best eel for the temple',
+        'louder than a gull at dawn', 'has never once cut a fair filet',
+    ],
+    'mine foreman': [
+        'counts miners in and counts them out', 'reads the rock like weather',
+        'lost a brother to a cave-in, says nothing', 'docks pay for a cracked timber',
+        'keeps a caged bird for the deep shafts', 'superstitious about the third gallery',
+    ],
+    guildmaster: [
+        'blackballs apprentices on a whim', 'keeps the guild’s secrets and its debts',
+        'sets prices with a raised eyebrow', 'has outlived three rivals and gloats',
+        'more politician than craftsman now', 'wears a chain of office worth a house',
+    ],
+    elder: [
+        'remembers the last hard winter, all of them', 'settles disputes before they reach blows',
+        'keeps the village’s few records in their head', 'suspicious of anyone from over the ridge',
+        'planted half the trees on the green', 'outlived two spouses and every rival',
+    ],
+    default: [
+        'never forgets a face', 'talks to a cat that answers, they swear',
+        'owes money in three towns', 'quicker with a knife than a word',
+        'keeps a secret worth killing for', 'laughs at the wrong moments',
+        'once soldiered somewhere warmer', 'reads the weather better than the priest',
+        'saves the good stock for friends', 'has a limp and a longer memory',
+        'trusts the road more than any roof', 'lost everything once and rebuilt quietly',
+        'kind to strangers, wary of neighbors', 'always seems to know what you came to ask',
+    ],
+};
