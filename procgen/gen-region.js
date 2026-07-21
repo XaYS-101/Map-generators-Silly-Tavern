@@ -13,6 +13,7 @@ import { Noise2D } from './noise.js';
 import { makeEnvelope, compass } from './schema.js';
 import { nameFor, biomeName, POI_KINDS } from './names.js';
 import { BIOME_CODES } from './region/biomes.js';
+import { buildTerrain } from './region/terrain.js';
 
 const N = 256;
 export { BIOME_CODES };
@@ -23,36 +24,20 @@ export function generateRegion(seed, params = {}) {
     model.size = { w: N, h: N, unit: 'cell' };
 
     const rng = new Rng(`${seed}/layout:${p.mask}:${p.water}:${p.settlements}`);
-    const noiseH = new Noise2D(`${seed}/height`);
     const noiseM = new Noise2D(`${seed}/moisture`);
 
-    /* ---- heightmap with landmass mask ---- */
-    const height = new Float32Array(N * N);
+    /* ---- stage 1: terrain (height is immutable from here on) ---- */
+    const terrain = buildTerrain({ N, seed, p }, rng);
+    const { height, sea, landSpan } = terrain;
+    const hNorm = i => (height[i] - sea) / landSpan;   // 0 at shore, 1 at highest peak
+
     const moist = new Float32Array(N * N);
-    const coastSide = rng.int(0, 3);   // used only for mask 'coast'
     const scale = 1 / 46;
     for (let y = 0; y < N; y++) {
         for (let x = 0; x < N; x++) {
-            let v = noiseH.warped(x * scale, y * scale, { octaves: 5 });
-            if (p.mask === 'island') {
-                const dx = (x - N / 2) / (N / 2), dy = (y - N / 2) / (N / 2);
-                v *= Math.max(0, 1 - (dx * dx + dy * dy) * 0.85);
-            } else if (p.mask === 'coast') {
-                const t = [x / N, 1 - x / N, y / N, 1 - y / N][coastSide];
-                v *= 0.15 + 0.85 * Math.min(1, t * 1.6);
-            }
-            height[y * N + x] = v;
             moist[y * N + x] = noiseM.fbm(x * scale * 1.4, y * scale * 1.4, { octaves: 4 });
         }
     }
-
-    /* ---- sea level by percentile → stable land ratio ---- */
-    const waterFrac = p.mask === 'inland' ? Math.min(p.water, 0.1) : p.water;
-    const sorted = Float32Array.from(height).sort();
-    const sea = sorted[Math.min(N * N - 1, Math.floor(waterFrac * N * N))];
-    const landMax = sorted[N * N - 1];
-    const landSpan = Math.max(1e-6, landMax - sea);
-    const hNorm = i => (height[i] - sea) / landSpan;   // 0 at shore, 1 at highest peak
 
     /* ---- rivers: springs in the highlands, greedy downhill ---- */
     const rivers = [];

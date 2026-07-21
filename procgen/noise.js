@@ -38,6 +38,20 @@ export class Noise2D {
         return sum / norm;
     }
 
+    /** ridged multifractal: sharp crests where the noise crosses 0.5 —
+     *  multiplied by a low-frequency belt mask it reads as mountain CHAINS */
+    ridged(x, y, { octaves = 4, lacunarity = 2, gain = 0.5 } = {}) {
+        let sum = 0, amp = 1, freq = 1, norm = 0;
+        for (let o = 0; o < octaves; o++) {
+            const v = 1 - Math.abs(2 * this.value(x * freq, y * freq) - 1);
+            sum += amp * v * v;
+            norm += amp;
+            amp *= gain;
+            freq *= lacunarity;
+        }
+        return sum / norm;
+    }
+
     /** one round of domain warp — cheap, big realism win for terrain */
     warped(x, y, opts) {
         const wx = this.fbm(x + 5.2, y + 1.3, opts);
