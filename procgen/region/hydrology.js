@@ -14,8 +14,9 @@
  * ------------------------------------------------------------------ */
 
 const EPS = 1e-7;        // monotone bump that drains flats
-const LAKE_EPS = 1e-3;   // how much fill counts as standing water
-const MIN_LAKE_CELLS = 12;
+const LAKE_EPS = 6e-3;   // how much fill counts as standing water
+const MIN_LAKE_CELLS = 30;
+const MAX_LAKES = 7;     // keep the largest basins; the rest read as plains
 const SQRT2 = Math.SQRT2;
 
 /* E, SE, S, SW, W, NW, N, NE — fixed order = deterministic ties */
@@ -136,6 +137,16 @@ export function buildHydrology(ctx) {
             } else {
                 lakes.push({ id, x: sx / cells, y: sy / cells, cells, level: wh[i] });
             }
+        }
+        // noisy fBm terrain pits everywhere — keep only the largest basins,
+        // the rest become plains the rivers simply flow across
+        lakes.sort((a, b) => b.cells - a.cells || a.id - b.id);
+        if (lakes.length > MAX_LAKES) {
+            const dropped = new Set(lakes.slice(MAX_LAKES).map(l => l.id));
+            for (let i = 0; i < M; i++) {
+                if (dropped.has(lakeId[i])) { lakeMask[i] = 0; lakeId[i] = 0; }
+            }
+            lakes.length = MAX_LAKES;
         }
     }
 

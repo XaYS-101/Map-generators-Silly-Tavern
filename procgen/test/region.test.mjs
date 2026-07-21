@@ -109,11 +109,11 @@ test('biome grid snapshots (update deliberately on generator changes)', () => {
     // pinned against the v1.7.0 pipeline; on a deliberate generator change,
     // print `got` and update these values in the same commit
     assert.deepEqual(got, {
-        '12345/normal': 1979654596,
-        '12345/wasteland': 1721329484,
-        'alpha/normal': 1009210670,
-        'alpha/wasteland': 399392830,
-        'omega/normal': 3330597709,
-        'omega/wasteland': 2505830624,
+        '12345/normal': 1874247383,
+        '12345/wasteland': 3122061892,
+        'alpha/normal': 2436587101,
+        'alpha/wasteland': 3564486419,
+        'omega/normal': 3582114016,
+        'omega/wasteland': 2322818398,
     });
 });
