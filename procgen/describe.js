@@ -115,15 +115,33 @@ function describeDungeon(model) {
     return { prose: lines.join('\n'), ascii: gridAscii(model), json: compactJson(model) };
 }
 
-/** ASCII minimap from layers.grid with room ids at centroids. */
+/** ASCII minimap from layers.grid with room ids at centroids.
+ *  New multi-floor interiors → one captioned map per floor, stacked;
+ *  everything else (dungeon, legacy single-floor interior) → one map. */
 function gridAscii(model) {
+    if (model.type === 'interior' && model.layers?.floors?.length) {
+        const floors = [...model.layers.floors].sort((a, b) => a.level - b.level);
+        const blocks = [];
+        for (const f of floors) {
+            const block = gridAsciiOne(model, f.grid, true);
+            if (block) blocks.push(`[${f.label}]\n${block}`);
+        }
+        return blocks.length ? blocks.join('\n\n') : null;
+    }
     if (!model.layers?.grid) return null;
-    let rows = rleDecode(model.layers.grid).map(r => r.split(''));
+    return gridAsciiOne(model, model.layers.grid, !!model.layers.cellGrid);
+}
+
+/** Render one grid (RLE) to an ASCII block + legend. */
+function gridAsciiOne(model, gridRle, isCellGrid) {
+    if (!gridRle) return null;
+    let rows = rleDecode(gridRle).map(r => r.split(''));
+    if (!rows.length || !rows[0].length) return null;
     const wide = rows[0].length > 64;
     if (wide) rows = rows.map(row => row.filter((_, i) => i % 2 === 0));
 
     let legend;
-    if (model.layers.cellGrid) {
+    if (isCellGrid) {
         // interior grids already store the room letter in every cell
         legend = `legend: each char = 1 m of that room's floor (a=room 1, b=room 2…), # = outside${wide ? ' (compressed 2:1 horizontally)' : ''}`;
     } else {
@@ -146,37 +164,153 @@ function gridAscii(model) {
 /* ------------------------------------------------------------------
  *  Interior
  * ------------------------------------------------------------------ */
+/* Floors of an interior model; legacy single-floor models (layers.grid,
+ * no floors array) are synthesized into one Ground floor. */
+function interiorFloors(model) {
+    if (model.layers?.floors?.length) return [...model.layers.floors];
+    return [{
+        level: 0, label: 'Ground floor',
+        grid: model.layers?.grid, outline: model.layers?.outline, cut: model.layers?.cut,
+        w: model.size?.w, h: model.size?.h,
+    }];
+}
+
+/* Prose display order: Ground floor, then Upper, then Cellar. */
+function floorDisplayKey(level) {
+    if (level === 0) return 0;
+    if (level > 0) return level;         // upper floors ascend after ground
+    return 100 - level;                  // cellars sink to the end
+}
+
+const INT_WEALTH_FLAVOR = { poor: 'a threadbare', average: 'a modest', wealthy: 'a well-appointed' };
+const INT_CONDITION_CLAUSE = {
+    abandoned: 'long abandoned — dust and cobwebs throughout',
+    looted: 'ransacked — doors forced and valuables gone',
+};
+const NUM_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+function numberWord(n) { return NUM_WORDS[n] || String(n); }
+function indefArticle(word) { return /^[aeiou]/i.test(word) ? 'an' : 'a'; }
+function pluralize(word) {
+    if (/(s|x|z|ch|sh)$/i.test(word)) return word + 'es';
+    if (/[^aeiou]y$/i.test(word)) return word.slice(0, -1) + 'ies';
+    return word + 's';
+}
+const STAIR_OPP = { up: 'down', down: 'up' };
+
 function describeInterior(model) {
     const rooms = model.entities
         .filter(e => e.kind === 'room')
         .sort((a, b) => Number(idNum(a.id)) - Number(idNum(b.id)));
     const kind = model.params.building || 'building';
+    const condition = model.params.condition;
+    const floors = interiorFloors(model);
 
     const lines = [];
+    // 1) Header
     lines.push(`== ${model.name} (${kind} floor plan, seed "${model.seed}", ${rooms.length} rooms) ==`);
+
+    // 2) Overview
+    const wealth = INT_WEALTH_FLAVOR[model.params.wealth] || 'a modest';
+    let ov = `Overview: ${capital(wealth)} ${kind}`;
+    const condClause = INT_CONDITION_CLAUSE[condition];
+    if (condClause) ov += `, ${condClause}`;
+    if (floors.length > 1) {
+        const labels = [...floors].sort((a, b) => a.level - b.level).map(f => (f.label || 'floor').toLowerCase());
+        ov += `, spanning ${andList(labels)}`;
+    }
+    ov += '.';
     const entranceEdge = model.edges.find(e => e.b === 'street' || e.a === 'street');
-    let ov = `Overview: A single-story ${kind}, ${model.size.w}x${model.size.h} m.`;
     if (entranceEdge) {
         const roomId = entranceEdge.a === 'street' ? entranceEdge.b : entranceEdge.a;
         const room = rooms.find(r => r.id === roomId);
         const dir = entranceEdge.a === 'street' ? oppositeDir(entranceEdge.dir) : entranceEdge.dir;
         if (room) ov += ` The street entrance (${DIR_WORDS[dir] || dir} side) opens into the ${room.name}.`;
     }
-    lines.push(ov, '', 'Rooms:');
+    lines.push(ov);
 
-    for (const r of rooms.slice(0, 12)) {
-        const exits = model.edges
-            .filter(e => e.a === r.id || e.b === r.id)
-            .map(e => {
-                const other = e.a === r.id ? e.b : e.a;
-                const dir = e.a === r.id ? e.dir : oppositeDir(e.dir);
-                if (other === 'street') return `${dir}→street (door)`;
-                const o = rooms.find(x => x.id === other);
-                return `${dir}→${idNum(other)}${o ? ` (${o.name})` : ''}`;
-            });
-        lines.push(`${idNum(r.id)}. ${r.name} (${r.w}x${r.h})${r.notes ? ' — ' + r.notes : ''}. Doors: ${exits.join(', ') || 'none'}.`);
+    // 3) People
+    const occupants = model.entities.filter(e => e.kind === 'occupant');
+    if (occupants.length) {
+        const owner = occupants[0];
+        let line = `People: kept by ${owner.name} the ${owner.purpose}`;
+        if (owner.notes) line += ` — ${owner.notes}`;
+        const rest = occupants.slice(1);
+        if (rest.length) {
+            const byRole = new Map();
+            for (const o of rest) byRole.set(o.purpose, (byRole.get(o.purpose) || 0) + 1);
+            const parts = [...byRole].map(([role, n]) =>
+                n === 1 ? `${indefArticle(role)} ${role}` : `${numberWord(n)} ${pluralize(role)}`);
+            line += `; also ${andList(parts)} about`;
+        }
+        lines.push('', line + '.');
+    } else if (model.layers?.formerOwner || model.formerOwner) {
+        const fo = model.layers?.formerOwner || model.formerOwner;
+        lines.push('', `Once kept by ${fo.name} the ${fo.role}; no one lives here now.`);
     }
-    if (rooms.length > 12) lines.push(`…plus ${rooms.length - 12} more rooms.`);
+
+    // 4/5) Rooms grouped by floor (display order), each floor capped at 12
+    const roomExits = (r) => {
+        const out = [];
+        for (const e of model.edges) {
+            if (e.a !== r.id && e.b !== r.id) continue;
+            const other = e.a === r.id ? e.b : e.a;
+            const dir = e.a === r.id ? e.dir : oppositeDir(e.dir);
+            if (e.kind === 'stair') {
+                const sdir = e.a === r.id ? (e.dir || 'up') : (STAIR_OPP[e.dir] || 'down');
+                const o = rooms.find(x => x.id === other);
+                out.push(`stairs ${sdir}→${other}${o ? ` (${o.name})` : ''}`);
+                continue;
+            }
+            if (other === 'street') { out.push(`${dir}→street (door)${e.locked ? ' (locked)' : ''}`); continue; }
+            const o = rooms.find(x => x.id === other);
+            out.push(`${dir}→${idNum(other)}${o ? ` (${o.name})` : ''}${e.locked ? ' (locked)' : ''}`);
+        }
+        return out;
+    };
+    const roomLine = (r) => {
+        let line = `${idNum(r.id)}. ${r.name} (${r.w}x${r.h})`;
+        if (r.notes) line += ` — ${r.notes}`;
+        line += '.';
+        const c = r.content || {};
+        if (c.valuables) line += ` ${c.valuables}`;
+        if (c.secret) line += ` ${c.secret}`;
+        if (c.key) line += ` ${c.key}`;
+        const exits = roomExits(r);
+        line += ` Doors: ${exits.join(', ') || 'none'}.`;
+        return line;
+    };
+    const isSpecial = (r) => r.tags?.includes('entrance') || r.tags?.includes('stairs')
+        || (r.content && (r.content.key || r.content.secret || r.content.hook));
+    const score = (r) => {
+        let sc = r.w * r.h * 0.1;
+        if (r.tags?.includes('entrance')) sc += 100;
+        if (r.tags?.includes('stairs')) sc += 100;
+        if (r.content?.key) sc += 60;
+        if (r.content?.secret) sc += 50;
+        if (r.content?.hook) sc += 40;
+        return sc;
+    };
+
+    const ordered = [...floors].sort((a, b) => floorDisplayKey(a.level) - floorDisplayKey(b.level));
+    for (const f of ordered) {
+        const fr = rooms.filter(r => (r.level ?? 0) === f.level);
+        if (!fr.length) continue;
+        let main = fr, rest = [];
+        if (fr.length > 12) {
+            const must = fr.filter(isSpecial);
+            const others = fr.filter(r => !isSpecial(r)).sort((a, b) => score(b) - score(a));
+            const keep = new Set(others.slice(0, Math.max(0, 12 - must.length)).map(r => r.id));
+            main = fr.filter(r => isSpecial(r) || keep.has(r.id));
+            rest = fr.filter(r => !main.includes(r));
+        }
+        lines.push('', `${f.label || 'Floor'}:`);
+        for (const r of main) lines.push(roomLine(r));
+        if (rest.length) lines.push(`…plus ${rest.length} more room${rest.length > 1 ? 's' : ''}.`);
+    }
+
+    // 6) Hook line last
+    const hookRoom = rooms.find(r => r.content?.hook);
+    if (hookRoom) lines.push('', `Something happened here: ${hookRoom.content.hook}`);
 
     return { prose: lines.join('\n'), ascii: gridAscii(model), json: compactJson(model) };
 }
