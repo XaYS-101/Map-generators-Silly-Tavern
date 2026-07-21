@@ -36,7 +36,9 @@ function canvasDims(model) {
             return { w: w * s + m * 2, h: h * s + m * 2, view: { s, ox: m, oy: m } };
         }
         case 'town': {
-            const s = 1.4, m = 28;
+            // adaptive scale keeps the canvas ~1000 px across village→city
+            // extents (460 → ~2.1, 640 → 1.5, 840 → ~1.2).
+            const s = Math.max(1.1, Math.round((980 / w) * 10) / 10), m = 28;
             return { w: Math.round(w * s) + m * 2, h: Math.round(h * s) + m * 2, view: { s, ox: m, oy: m } };
         }
         default:

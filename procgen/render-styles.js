@@ -558,11 +558,10 @@ export function drawRegion(ctx, model, rng, h, view) {
     for (const br of model.entities.filter(e => e.kind === 'bridge')) {
         const [cx, cy] = px(br.x, br.y);
         const a = br.angle || 0;
-        const rvx = Math.cos(a), rvy = Math.sin(a);      // along the river
-        const rdx = -Math.sin(a), rdy = Math.cos(a);     // along the road (perpendicular)
         const u = s / 3;
         if (br.purpose === 'ford') {
             // a row of small dots across the river (along the road direction)
+            const rdx = -Math.sin(a), rdy = Math.cos(a);
             const half = 3 * u;
             ctx.fillStyle = '#6f4f2e';
             for (let k = 0; k < 4; k++) {
@@ -572,17 +571,7 @@ export function drawRegion(ctx, model, rng, h, view) {
                 ctx.fill();
             }
         } else {
-            // deck: a slightly thicker light stroke, then two dark rails either side
-            const half = 3 * u;                          // ~5–7 px long at s=3
-            const off = 2 * u;
-            h.inkLine([[cx - rdx * half, cy - rdy * half], [cx + rdx * half, cy + rdy * half]],
-                { width: 1.8 * u, wobble: 0.2, color: '#d8c49a', alpha: 0.9, passes: 1 });
-            for (const sgn of [1, -1]) {
-                const ox2 = rvx * off * sgn, oy2 = rvy * off * sgn;
-                h.inkLine([[cx + ox2 - rdx * half, cy + oy2 - rdy * half],
-                           [cx + ox2 + rdx * half, cy + oy2 + rdy * half]],
-                    { width: 1.2 * u, wobble: 0.2, color: '#5a3d22', alpha: 0.95, passes: 1 });
-            }
+            drawBridgeGlyph(ctx, h, cx, cy, a, u);
         }
     }
 
@@ -737,39 +726,131 @@ export function drawTown(ctx, model, rng, h, view) {
     const pxPts = pts => pts.map(([x, y]) => px(x, y));
     const ents = model.entities;
     const W = model.size.w, H = model.size.h;
+    const INK = h.INK;
 
-    // coast
+    // ---- small deterministic helpers (all jitter via the style `rng`) ----
+    const centroid = poly => {
+        let x = 0, y = 0;
+        for (const [a, b] of poly) { x += a; y += b; }
+        return [x / poly.length, y / poly.length];
+    };
+    const bbox = poly => {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const [x, y] of poly) {
+            if (x < minX) minX = x; if (x > maxX) maxX = x;
+            if (y < minY) minY = y; if (y > maxY) maxY = y;
+        }
+        return [minX, minY, maxX, maxY];
+    };
+    const dotCloud = (cx, cy, count, spread, color, rMin = 0.6, rMax = 1.3) => {
+        ctx.fillStyle = color;
+        for (let i = 0; i < count; i++) {
+            ctx.beginPath();
+            ctx.arc(cx + rng.gaussian(0, spread), cy + rng.gaussian(0, spread * 0.7),
+                rng.float(rMin, rMax), 0, Math.PI * 2);
+            ctx.fill();
+        }
+    };
+
+    // ---- coast: draw the REAL shoreline polyline; sea fill below it ----
     const coast = ents.find(e => e.kind === 'coast');
-    if (coast) {
-        const shore = [];
-        for (let x = 0; x <= W; x += 32) shore.push([x, coast.y + rng.gaussian(0, 5)]);
-        const poly = pxPts([...shore, [W, H], [0, H]]);
+    if (coast && coast.pts && coast.pts.length >= 2) {
+        const shore = pxPts(coast.pts);
+        const first = coast.pts[0], last = coast.pts[coast.pts.length - 1];
+        const poly = [...shore, px(last[0], H), px(first[0], H)];
         ctx.fillStyle = 'rgba(150,176,192,0.7)';
         ctx.beginPath();
         poly.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
         ctx.closePath();
         ctx.fill();
-        h.inkLine(pxPts(shore), { width: 1.6, wobble: 1 });
-        h.inkLine(pxPts(shore.map(([x, y]) => [x, y + 8])), { width: 1, wobble: 1, alpha: 0.35, passes: 1 });
-        h.inkLine(pxPts(shore.map(([x, y]) => [x, y + 18])), { width: 1, wobble: 1, alpha: 0.2, passes: 1 });
+        // 2–3 ink shorelines following the real polyline (no re-jitter)
+        h.inkLine(shore, { width: 1.6, wobble: 1 });
+        h.inkLine(pxPts(coast.pts.map(([x, y]) => [x, y + 8])), { width: 1, wobble: 1, alpha: 0.35, passes: 1 });
+        h.inkLine(pxPts(coast.pts.map(([x, y]) => [x, y + 18])), { width: 1, wobble: 1, alpha: 0.2, passes: 1 });
     }
 
-    // river band
+    // ---- contours (hillside): thin dashed ink lines ----
+    ctx.save();
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = INK;
+    ctx.globalAlpha = 0.3;
+    ctx.lineWidth = 1;
+    for (const c of ents.filter(e => e.kind === 'contour')) {
+        const pts = pxPts(c.pts || []);
+        if (pts.length < 2) continue;
+        ctx.beginPath();
+        pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+        ctx.stroke();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+
+    // ---- river band: width from river.width, scaled by s ----
     const river = ents.find(e => e.kind === 'river');
     if (river) {
         const pts = pxPts(river.pts);
+        const bandW = (river.width ?? 24) * s;
         ctx.strokeStyle = 'rgba(150,176,192,0.75)';
-        ctx.lineWidth = 24 * s;
+        ctx.lineWidth = bandW;
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
         ctx.beginPath();
         pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
         ctx.stroke();
-        h.inkLine(offsetPolyline(pts, 12 * s), { width: 1.3, wobble: 1, alpha: 0.8 });
-        h.inkLine(offsetPolyline(pts, -12 * s), { width: 1.3, wobble: 1, alpha: 0.8 });
+        h.inkLine(offsetPolyline(pts, bandW / 2), { width: 1.3, wobble: 1, alpha: 0.8 });
+        h.inkLine(offsetPolyline(pts, -bandW / 2), { width: 1.3, wobble: 1, alpha: 0.8 });
     }
 
-    // plaza
+    // ---- fields (land use): cheap hatch fills + orchard tree bumps ----
+    for (const f of ents.filter(e => e.kind === 'field')) {
+        const poly = pxPts(f.poly || []);
+        if (poly.length < 3) continue;
+        if (f.purpose === 'orchard') {
+            h.hatchPoly(poly, { spacing: 8, angle: Math.PI / 4, alpha: 0.25 });
+            const [cx, cy] = centroid(poly);
+            const [minX, minY, maxX, maxY] = bbox(poly);
+            const span = Math.max(3, Math.min(maxX - minX, maxY - minY) / 4);
+            ctx.strokeStyle = '#5c6b4a';
+            ctx.lineWidth = 1;
+            ctx.globalAlpha = 0.6;
+            const bumps = 3 + rng.int(0, 1);
+            for (let i = 0; i < bumps; i++) {
+                const bx = cx + rng.gaussian(0, span), by = cy + rng.gaussian(0, span);
+                const r = rng.float(2, 3);
+                ctx.beginPath();
+                ctx.moveTo(bx + r, by);
+                ctx.arc(bx, by, r, 0, Math.PI, true);
+                ctx.moveTo(bx, by);
+                ctx.lineTo(bx, by + r);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+        } else {
+            h.hatchPoly(poly, { spacing: 6, angle: Math.PI / 2, alpha: 0.25 });
+        }
+    }
+
+    // ---- spoil heaps: overlapping mound arcs + speckle ----
+    for (const sp of ents.filter(e => e.kind === 'spoil')) {
+        const [cx, cy] = px(sp.x, sp.y);
+        const r = (sp.r ?? 6) * s;
+        ctx.strokeStyle = '#8a7a63';
+        ctx.lineWidth = 1.2;
+        ctx.globalAlpha = 0.8;
+        const mounds = 2 + (rng.chance(0.5) ? 1 : 0);
+        for (let i = 0; i < mounds; i++) {
+            const mx = cx + rng.float(-r * 0.4, r * 0.4);
+            const my = cy + rng.float(-r * 0.15, r * 0.2);
+            const mr = r * rng.float(0.5, 0.9);
+            ctx.beginPath();
+            ctx.arc(mx, my, mr, Math.PI, Math.PI * 2, false);   // upper open mound arc
+            ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        dotCloud(cx, cy, 6, r * 0.4, '#6f5c45', 0.5, 1.1);
+    }
+
+    // ---- plaza ----
     const plaza = ents.find(e => e.kind === 'plaza');
     if (plaza) {
         const [cx, cy] = px(plaza.x, plaza.y);
@@ -780,7 +861,7 @@ export function drawTown(ctx, model, rng, h, view) {
         ctx.fill();
         ctx.save();
         ctx.setLineDash([4, 4]);
-        ctx.strokeStyle = h.INK;
+        ctx.strokeStyle = INK;
         ctx.globalAlpha = 0.4;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -790,12 +871,13 @@ export function drawTown(ctx, model, rng, h, view) {
         ctx.globalAlpha = 1;
     }
 
-    // roads under everything else
+    // ---- roads under buildings; alleys thinnest, no centreline ----
     const roads = ents.filter(e => e.kind === 'road');
+    const roadW = r => r.purpose === 'main' ? 7 : r.purpose === 'alley' ? 2.5 : 4;
     for (const r of roads) {
         const pts = pxPts(r.pts);
         ctx.strokeStyle = '#dcd0ab';
-        ctx.lineWidth = (r.purpose === 'main' ? 7 : 4) * s;
+        ctx.lineWidth = roadW(r) * s;
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
         ctx.beginPath();
@@ -804,10 +886,11 @@ export function drawTown(ctx, model, rng, h, view) {
     }
     ctx.save();
     ctx.setLineDash([6, 6]);
-    ctx.strokeStyle = h.INK;
+    ctx.strokeStyle = INK;
     ctx.globalAlpha = 0.22;
     ctx.lineWidth = 1;
     for (const r of roads) {
+        if (r.purpose === 'alley') continue;   // alleys get no dashed centreline
         const pts = pxPts(r.pts);
         ctx.beginPath();
         pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
@@ -816,53 +899,194 @@ export function drawTown(ctx, model, rng, h, view) {
     ctx.restore();
     ctx.globalAlpha = 1;
 
-    // buildings: shadow → body → ink outline (landmarks darker + ridge)
+    // ---- piers: plank deck stroke + perpendicular tick planks ----
+    for (const pier of ents.filter(e => e.kind === 'pier')) {
+        const pts = pxPts(pier.pts || []);
+        if (pts.length < 2) continue;
+        h.inkLine(pts, { width: 3, wobble: 0.3, color: '#c9ba95', alpha: 0.9, passes: 1 });
+        let acc = 0;
+        for (let i = 1; i < pts.length; i++) {
+            const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
+            const segLen = Math.hypot(bx - ax, by - ay) || 1;
+            const ux = (bx - ax) / segLen, uy = (by - ay) / segLen;
+            const nx = -uy, ny = ux;
+            for (let d = 6 - (acc % 6); d < segLen; d += 6) {
+                const mx = ax + ux * d, my = ay + uy * d;
+                h.inkLine([[mx - nx * 2.5, my - ny * 2.5], [mx + nx * 2.5, my + ny * 2.5]],
+                    { width: 1, wobble: 0.2, color: INK, alpha: 0.7, passes: 1 });
+            }
+            acc += segLen;
+        }
+    }
+
+    // ---- bridges: shared deck glyph (larger u at town scale) ----
+    for (const br of ents.filter(e => e.kind === 'bridge')) {
+        const [cx, cy] = px(br.x, br.y);
+        drawBridgeGlyph(ctx, h, cx, cy, br.angle || 0, 3 * s);
+    }
+
+    // ---- buildings: fill by material + state variants ----
+    const drawBrokenPoly = (poly, width) => {
+        const n = poly.length;
+        const nSkip = rng.chance(0.5) ? 1 : 2;
+        const start = rng.int(0, n - 1);
+        const skip = new Set();
+        for (let k = 0; k < nSkip; k++) skip.add((start + k) % n);
+        for (let i = 0; i < n; i++) {
+            if (skip.has(i)) continue;
+            h.inkLine([poly[i], poly[(i + 1) % n]], { width, wobble: 0.7, passes: 1 });
+        }
+    };
+    const drawCitadel = poly => {
+        h.inkPoly(poly, { width: 1.8, wobble: 0.5 });
+        // crenellations on the edge nearest the map top (lowest mean y)
+        const n = poly.length;
+        let best = 0, bestY = Infinity;
+        for (let i = 0; i < n; i++) {
+            const my = (poly[i][1] + poly[(i + 1) % n][1]) / 2;
+            if (my < bestY) { bestY = my; best = i; }
+        }
+        const a = poly[best], b = poly[(best + 1) % n];
+        const teeth = 3 + rng.int(0, 1);
+        for (let k = 0; k < teeth; k++) {
+            const t = (k + 0.5) / teeth;
+            const mx = a[0] + (b[0] - a[0]) * t, my = a[1] + (b[1] - a[1]) * t;
+            h.inkRect(mx - 1.5, my - 3, 3, 3, { width: 1, wobble: 0.2, overshoot: 0.5 });
+        }
+    };
     const drawBuilding = (b, landmark) => {
         const poly = pxPts(b.poly);
-        ctx.fillStyle = 'rgba(60,40,20,0.22)';
-        ctx.beginPath();
-        poly.forEach(([x, y], i) => i ? ctx.lineTo(x + 2.5, y + 2.5) : ctx.moveTo(x + 2.5, y + 2.5));
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = landmark ? '#e9dab4' : '#efe6cf';
+        const state = b.state || 'intact';
+        const material = b.material || 'wood';
+        const isCitadel = landmark && b.purpose === 'citadel';
+        const bodyFill = landmark
+            ? (isCitadel ? '#ddcfa0' : '#e9dab4')
+            : (material === 'stone' ? '#e3ddd0' : '#efe6cf');
+
+        // shadow: intact + abandoned only
+        if (state === 'intact' || state === 'abandoned') {
+            ctx.fillStyle = 'rgba(60,40,20,0.22)';
+            ctx.beginPath();
+            poly.forEach(([x, y], i) => i ? ctx.lineTo(x + 2.5, y + 2.5) : ctx.moveTo(x + 2.5, y + 2.5));
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // rubble: no body, just a dot-cloud over the poly area
+        if (state === 'rubble') {
+            const [minX, minY, maxX, maxY] = bbox(poly);
+            ctx.fillStyle = '#7a6a52';
+            const count = Math.max(6, Math.min(24, Math.round((maxX - minX) * (maxY - minY) / 40)));
+            for (let i = 0; i < count; i++) {
+                ctx.beginPath();
+                ctx.arc(rng.float(minX, maxX), rng.float(minY, maxY), rng.float(0.6, 1.4), 0, Math.PI * 2);
+                ctx.fill();
+            }
+            return;
+        }
+
+        // body fill
+        ctx.fillStyle = bodyFill;
         ctx.beginPath();
         poly.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
         ctx.closePath();
         ctx.fill();
-        h.inkPoly(poly, { width: landmark ? 1.7 : 1.1, wobble: 0.6 });
-        if (poly.length === 4) {
-            const len = (a, b) => Math.hypot(poly[a][0] - poly[b][0], poly[a][1] - poly[b][1]);
-            const mid = (a, b) => [(poly[a][0] + poly[b][0]) / 2, (poly[a][1] + poly[b][1]) / 2];
-            const ridge = len(0, 1) >= len(1, 2) ? [mid(0, 3), mid(1, 2)] : [mid(0, 1), mid(3, 2)];
-            h.inkLine(ridge, { width: 0.9, wobble: 0.4, alpha: 0.5, passes: 1 });
+
+        if (isCitadel) {
+            drawCitadel(poly);
+        } else if (state === 'ruined') {
+            drawBrokenPoly(poly, landmark ? 1.7 : 1.1);
+            const [cx, cy] = centroid(poly);
+            const [minX, minY, maxX, maxY] = bbox(poly);
+            const spread = Math.max(2, (maxX - minX) / 6);
+            dotCloud(cx, cy, 3 + rng.int(0, 2), spread, '#7a6a52');
+        } else {
+            h.inkPoly(poly, { width: landmark ? 1.7 : 1.1, wobble: 0.6 });
+            if (poly.length === 4) {
+                const len = (a, b) => Math.hypot(poly[a][0] - poly[b][0], poly[a][1] - poly[b][1]);
+                const mid = (a, b) => [(poly[a][0] + poly[b][0]) / 2, (poly[a][1] + poly[b][1]) / 2];
+                const ridge = len(0, 1) >= len(1, 2) ? [mid(0, 3), mid(1, 2)] : [mid(0, 1), mid(3, 2)];
+                h.inkLine(ridge, { width: 0.9, wobble: 0.4, alpha: 0.5, passes: 1 });
+            }
+        }
+
+        // abandoned: small ink X near the centroid (door side)
+        if (state === 'abandoned') {
+            const [cx, cy] = centroid(poly);
+            const r = 2.5;
+            h.inkLine([[cx - r, cy - r], [cx + r, cy + r]], { width: 1, wobble: 0.3, alpha: 0.7, passes: 1 });
+            h.inkLine([[cx - r, cy + r], [cx + r, cy - r]], { width: 1, wobble: 0.3, alpha: 0.7, passes: 1 });
         }
     };
     for (const b of ents.filter(e => e.kind === 'building')) drawBuilding(b, false);
     for (const b of ents.filter(e => e.kind === 'landmark')) drawBuilding(b, true);
 
-    // wall with towers and gates
+    // ---- wall: stone vs palisade, breaches, gates ----
     const wall = ents.find(e => e.kind === 'wall');
-    if (wall) {
-        h.inkPoly(pxPts(wall.pts), { width: 3.6, wobble: 1.4 });
-        for (const [x, y] of wall.pts) {
-            const [cx, cy] = px(x, y);
-            ctx.fillStyle = h.PARCHMENT;
-            ctx.beginPath();
-            ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = h.INK;
-            ctx.lineWidth = 1.4;
-            ctx.stroke();
+    if (wall && wall.pts && wall.pts.length >= 2) {
+        const wpts = pxPts(wall.pts);
+        const n = wpts.length;
+        const type = wall.type || 'stone';
+        const breaches = wall.breaches || [];
+        const inBreach = i => breaches.some(([a, b]) => i >= a && i <= b);
+
+        if (type === 'palisade') {
+            // thinner double line + short perpendicular stake ticks every ~5px
+            for (let i = 0; i < n; i++) {
+                if (inBreach(i)) continue;
+                const a = wpts[i], b = wpts[(i + 1) % n];
+                const dx = b[0] - a[0], dy = b[1] - a[1];
+                const L = Math.hypot(dx, dy) || 1;
+                const ux = dx / L, uy = dy / L, nx = -uy, ny = ux;
+                const off = 1.2;
+                h.inkLine([[a[0] + nx * off, a[1] + ny * off], [b[0] + nx * off, b[1] + ny * off]], { width: 1, wobble: 0.5, passes: 1 });
+                h.inkLine([[a[0] - nx * off, a[1] - ny * off], [b[0] - nx * off, b[1] - ny * off]], { width: 1, wobble: 0.5, passes: 1 });
+                for (let d = 0; d <= L; d += 5) {
+                    const mx = a[0] + ux * d, my = a[1] + uy * d;
+                    h.inkLine([[mx - nx * 2.2, my - ny * 2.2], [mx + nx * 2.2, my + ny * 2.2]], { width: 0.8, wobble: 0.2, alpha: 0.7, passes: 1 });
+                }
+            }
+        } else {
+            // stone: thick inkPoly (per-segment so breaches can gap) + tower dots
+            for (let i = 0; i < n; i++) {
+                if (inBreach(i)) continue;
+                h.inkLine([wpts[i], wpts[(i + 1) % n]], { width: 3.6, wobble: 1.4 });
+            }
+            for (const [x, y] of wall.pts) {
+                const [cx, cy] = px(x, y);
+                ctx.fillStyle = h.PARCHMENT;
+                ctx.beginPath();
+                ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = INK;
+                ctx.lineWidth = 1.4;
+                ctx.stroke();
+            }
         }
+
+        // rubble scatter at breach ends
+        for (const [a, b] of breaches) {
+            for (const idx of [a, b + 1]) {
+                const p = wpts[((idx % n) + n) % n];
+                dotCloud(p[0], p[1], 4, 3, '#6f5c45', 0.6, 1.2);
+            }
+        }
+
+        // gates: full squares for stone, smaller marks for palisade
         for (const g of ents.filter(e => e.kind === 'gate')) {
             const [cx, cy] = px(g.x, g.y);
             ctx.fillStyle = h.PARCHMENT;
-            ctx.fillRect(cx - 5, cy - 5, 10, 10);
-            h.inkRect(cx - 5, cy - 5, 10, 10, { width: 1.3, wobble: 0.4, overshoot: 1 });
+            if (type === 'palisade') {
+                ctx.fillRect(cx - 3, cy - 3, 6, 6);
+                h.inkRect(cx - 3, cy - 3, 6, 6, { width: 1, wobble: 0.3, overshoot: 0.5 });
+            } else {
+                ctx.fillRect(cx - 5, cy - 5, 10, 10);
+                h.inkRect(cx - 5, cy - 5, 10, 10, { width: 1.3, wobble: 0.4, overshoot: 1 });
+            }
         }
     }
 
-    // labels
+    // ---- labels ----
     for (const l of ents.filter(e => e.kind === 'landmark')) {
         const [cx, cy] = px(l.x, l.y);
         h.label(l.name || capitalize(l.purpose), cx, cy - 8 * s, { size: 11 });
@@ -870,6 +1094,9 @@ export function drawTown(ctx, model, rng, h, view) {
     for (const d of ents.filter(e => e.kind === 'district')) {
         const [cx, cy] = px(d.x, d.y);
         h.label(d.name, cx, cy, { size: 15, color: 'rgba(93,81,51,0.85)' });
+        if (d.fn && d.fn !== 'general') {
+            h.label('(' + d.fn + ')', cx, cy + 14, { size: 11, italic: true, color: 'rgba(93,81,51,0.6)' });
+        }
     }
 }
 
@@ -884,6 +1111,28 @@ function offsetPolyline(pts, d) {
 }
 
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
+
+/* ------------------------------------------------------------------
+ *  Shared bridge deck glyph (region + town). A light plank-deck stroke
+ *  across the road direction, flanked by two dark rails offset along
+ *  the river tangent `angle`. `u` sets the size — region passes s/3;
+ *  drawTown passes a larger u because the town scale is smaller. Called
+ *  with u = s/3 it reproduces the region bridge exactly (unchanged).
+ * ------------------------------------------------------------------ */
+function drawBridgeGlyph(ctx, h, cx, cy, angle, u) {
+    const rvx = Math.cos(angle), rvy = Math.sin(angle);    // along the river
+    const rdx = -Math.sin(angle), rdy = Math.cos(angle);   // along the road (perpendicular)
+    const half = 3 * u;
+    const off = 2 * u;
+    h.inkLine([[cx - rdx * half, cy - rdy * half], [cx + rdx * half, cy + rdy * half]],
+        { width: 1.8 * u, wobble: 0.2, color: '#d8c49a', alpha: 0.9, passes: 1 });
+    for (const sgn of [1, -1]) {
+        const ox2 = rvx * off * sgn, oy2 = rvy * off * sgn;
+        h.inkLine([[cx + ox2 - rdx * half, cy + oy2 - rdy * half],
+                   [cx + ox2 + rdx * half, cy + oy2 + rdy * half]],
+            { width: 1.2 * u, wobble: 0.2, color: '#5a3d22', alpha: 0.95, passes: 1 });
+    }
+}
 
 /* ------------------------------------------------------------------
  *  Shared river painter (region + world). Per-point width grows
