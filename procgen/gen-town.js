@@ -10,6 +10,7 @@
 import { Rng } from './rng.js';
 import { makeEnvelope, compass } from './schema.js';
 import { nameFor, TOWN_LANDMARKS, BUILDING_KINDS, DISTRICT_ADJ, DISTRICT_FLAVOR } from './names.js';
+import { rectPoly, centroid, scalePoly, distToPolyline, segPointDist, polysIntersect } from './town/geom.js';
 
 const SIZE = 640;
 const MARGIN = 18;
@@ -271,53 +272,4 @@ export function generateTown(seed, params = {}) {
     return model;
 }
 
-/* ---- geometry helpers ---- */
-function rectPoly(cx, cy, w, d, ang) {
-    const ca = Math.cos(ang), sa = Math.sin(ang);
-    const hw = w / 2, hd = d / 2;
-    return [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]
-        .map(([x, y]) => [cx + x * ca - y * sa, cy + x * sa + y * ca]);
-}
-
-function centroid(poly) {
-    let sx = 0, sy = 0;
-    for (const [x, y] of poly) { sx += x; sy += y; }
-    return [sx / poly.length, sy / poly.length];
-}
-
-function scalePoly(poly, f) {
-    const [cx, cy] = centroid(poly);
-    return poly.map(([x, y]) => [cx + (x - cx) * f, cy + (y - cy) * f]);
-}
-
-function segPointDist(x, y, s) {
-    const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
-    const l2 = dx * dx + dy * dy;
-    if (!l2) return Math.hypot(x - s.x1, y - s.y1);
-    let t = ((x - s.x1) * dx + (y - s.y1) * dy) / l2;
-    t = Math.max(0, Math.min(1, t));
-    return Math.hypot(x - (s.x1 + t * dx), y - (s.y1 + t * dy));
-}
-
-function distToPolyline(x, y, pts) {
-    let best = Infinity;
-    for (let i = 1; i < pts.length; i++) {
-        best = Math.min(best, segPointDist(x, y, { x1: pts[i - 1][0], y1: pts[i - 1][1], x2: pts[i][0], y2: pts[i][1] }));
-    }
-    return best;
-}
-
-/** SAT for convex quads. */
-function polysIntersect(a, b) {
-    for (const poly of [a, b]) {
-        for (let i = 0; i < poly.length; i++) {
-            const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length];
-            const nx = y1 - y2, ny = x2 - x1;
-            let aMin = Infinity, aMax = -Infinity, bMin = Infinity, bMax = -Infinity;
-            for (const [qx, qy] of a) { const d = qx * nx + qy * ny; aMin = Math.min(aMin, d); aMax = Math.max(aMax, d); }
-            for (const [qx, qy] of b) { const d = qx * nx + qy * ny; bMin = Math.min(bMin, d); bMax = Math.max(bMax, d); }
-            if (aMax < bMin || bMax < aMin) return false;
-        }
-    }
-    return true;
-}
+/* geometry helpers live in town/geom.js */
