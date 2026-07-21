@@ -19,12 +19,22 @@ export function buildWalls(ctx) {
     if (p.walls && buildings.length) {
         const type = (size === 'village' || p.wealth === 'poor') ? 'palisade' : 'stone';
 
-        const dists = buildings
-            .filter(b => !b.outsideWall)
-            .map(b => Math.hypot(b.cx - plaza.x, b.cy - plaza.y))
+        // ring centered on the BUILT mass, not the plaza — hillside/coastal
+        // towns grow asymmetric and a plaza-centered circle rings empty land
+        const inner = buildings.filter(b => !b.outsideWall);
+        let wx = plaza.x, wy = plaza.y;
+        if (inner.length) {
+            wx = inner.reduce((s, b) => s + b.cx, 0) / inner.length;
+            wy = inner.reduce((s, b) => s + b.cy, 0) / inner.length;
+            // keep the plaza comfortably inside
+            wx = (wx * 2 + plaza.x) / 3;
+            wy = (wy * 2 + plaza.y) / 3;
+        }
+        const dists = inner
+            .map(b => Math.hypot(b.cx - wx, b.cy - wy))
             .sort((a, b) => a - b);
         const base = dists.length ? dists[Math.floor(dists.length * 0.9)] : extent * 0.25;
-        const radius = Math.min(extent * 0.44, base + 24);
+        const radius = Math.min(extent * 0.4, base + 24);
 
         const nPts = rng.int(14, 18);
         const pts = [];
@@ -33,8 +43,8 @@ export function buildWalls(ctx) {
             let r = radius * rng.float(0.93, 1.07);
             // pull the ring out of the water: the wall hugs the shore instead
             // of striding into the sea (step inward until the vertex is dry)
-            while (r > 30 && ctx.water.inWater(plaza.x + Math.cos(a) * r, plaza.y + Math.sin(a) * r)) r -= 10;
-            pts.push([plaza.x + Math.cos(a) * r, plaza.y + Math.sin(a) * r]);
+            while (r > 30 && ctx.water.inWater(wx + Math.cos(a) * r, wy + Math.sin(a) * r)) r -= 10;
+            pts.push([wx + Math.cos(a) * r, wy + Math.sin(a) * r]);
         }
         const ring = [...pts, pts[0]];   // closed for intersection tests
 

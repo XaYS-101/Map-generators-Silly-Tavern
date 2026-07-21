@@ -125,8 +125,8 @@ test('model snapshots (update deliberately on generator changes)', () => {
     // print `got` and update these values in the same commit
     assert.deepEqual(got, {
         't1/default': 214078121,
-        't1/spec': 2148232410,
+        't1/spec': 150039954,
         'bram/default': 1155474683,
-        'bram/spec': 2434499707,
+        'bram/spec': 2326589349,
     });
 });
