@@ -115,6 +115,10 @@ export const GENERATORS = {
         paramSchema: [
             { k: 'size', type: 'select', opts: ['village', 'town', 'city'], def: 'town', i18n: 'p_size' },
             { k: 'water', type: 'select', opts: ['none', 'river', 'coast'], def: 'river', i18n: 'p_water' },
+            { k: 'site', type: 'select', opts: ['plain', 'hillside', 'crossroads'], def: 'plain', i18n: 'p_site' },
+            { k: 'trade', type: 'select', opts: ['farming', 'trade', 'fishing', 'mining', 'garrison', 'temple'], def: 'trade', i18n: 'p_trade' },
+            { k: 'wealth', type: 'select', opts: ['poor', 'average', 'wealthy'], def: 'average', i18n: 'p_wealth' },
+            { k: 'condition', type: 'select', opts: ['thriving', 'declining', 'ruined'], def: 'thriving', i18n: 'p_condition' },
             { k: 'walls', type: 'bool', def: false, i18n: 'p_walls' },
         ],
     },

@@ -159,6 +159,22 @@ code. Please credit Watabou and consider supporting the tools on
 - Deleting a map or disabling its memory only *disables* its lorebook entry
   (never deletes it), so nothing is lost by accident.
 
+## Changed in 1.9.0
+
+- **Town / Village overhauled.** A staged pipeline with real water data (no more
+  buildings in the surf), bridges where main roads cross the river, hillside
+  towns with contour-hugging streets and a citadel, crossroads towns grown
+  around through-roads, and functional quarters driven by a new
+  **Specialization** param (farming / trade / fishing / mining / garrison /
+  temple): docks with piers, spoil heaps, barracks yards, temple closes,
+  caravanserais, fields and orchards outside the walls. New **Wealth**
+  (building size, stone vs wood, noble quarter or slums), **Terrain** and
+  **Condition** (thriving / declining / ruined — boarded-up houses, rubble,
+  breached walls) params. Landmarks now have names and notable residents
+  ("The Gilded Kraken, kept by Marga — never forgets a debt") that flow into
+  the AI description. Regenerated town maps will look different; saved
+  descriptions and thumbnails are untouched.
+
 ## Changed in 1.8.0
 
 - **New local World generator.** A whole-planet map built on plate tectonics,
