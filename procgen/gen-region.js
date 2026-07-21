@@ -14,6 +14,7 @@ import { makeEnvelope, compass } from './schema.js';
 import { nameFor, biomeName, POI_KINDS } from './names.js';
 import { BIOME_CODES } from './region/biomes.js';
 import { buildTerrain } from './region/terrain.js';
+import { buildHydrology } from './region/hydrology.js';
 
 const N = 256;
 export { BIOME_CODES };
@@ -39,66 +40,25 @@ export function generateRegion(seed, params = {}) {
         }
     }
 
-    /* ---- rivers: springs in the highlands, greedy downhill ---- */
-    const rivers = [];
-    const isWater = i => height[i] <= sea;
-    {
-        const springs = [];
-        const cand = [];
-        for (let y = 8; y < N - 8; y += 2) for (let x = 8; x < N - 8; x += 2) {
-            if (hNorm(y * N + x) > 0.55) cand.push([x, y]);
-        }
-        const nSprings = rng.int(3, 6);
-        for (const [x, y] of rng.shuffle(cand)) {
-            if (springs.length >= nSprings) break;
-            if (springs.every(s => Math.hypot(s[0] - x, s[1] - y) >= 30)) springs.push([x, y]);
-        }
-        for (const [sx, sy] of springs) {
-            let x = sx, y = sy;
-            const pts = [[x, y]];
-            const visited = new Set([y * N + x]);
-            let toSea = false;
-            for (let step = 0; step < 600; step++) {
-                let bx = -1, by = -1, bh = height[y * N + x];
-                for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-                    if (!dx && !dy) continue;
-                    const nx = x + dx, ny = y + dy;
-                    if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
-                    if (visited.has(ny * N + nx)) continue;
-                    if (height[ny * N + nx] < bh) { bh = height[ny * N + nx]; bx = nx; by = ny; }
-                }
-                if (bx < 0) {   // pit: carve slightly and take the lowest unvisited neighbor
-                    height[y * N + x] -= 0.004;
-                    let alt = Infinity;
-                    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-                        if (!dx && !dy) continue;
-                        const nx = x + dx, ny = y + dy;
-                        if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
-                        if (visited.has(ny * N + nx)) continue;
-                        if (height[ny * N + nx] < alt) { alt = height[ny * N + nx]; bx = nx; by = ny; }
-                    }
-                    if (bx < 0) break;
-                }
-                x = bx; y = by;
-                visited.add(y * N + x);
-                if (step % 3 === 0) pts.push([x, y]);
-                // moisten the banks so the biome pass grows greener near rivers
-                for (const [mx, my] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
-                    const mi = my * N + mx;
-                    if (mi >= 0 && mi < N * N) moist[mi] = Math.min(1, moist[mi] + 0.12);
-                }
-                if (isWater(y * N + x)) { toSea = true; break; }
-            }
-            pts.push([x, y]);
-            if (pts.length >= 6) rivers.push({ pts, toSea });
+    /* ---- stage 2: hydrology (lakes, D8 flow, rivers with width) ---- */
+    const hydro = buildHydrology({ N, height, sea, p });
+    const { isOcean, lakeMask, isRiver, rivers, lakes } = hydro;
+    // riverbanks read a touch greener (fresh water proxy until the climate stage)
+    for (let i = 0; i < N * N; i++) {
+        if (!isRiver[i] && !lakeMask[i]) continue;
+        const x = i % N, y = (i / N) | 0;
+        for (const [mx, my] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+            if (mx < 0 || my < 0 || mx >= N || my >= N) continue;
+            moist[my * N + mx] = Math.min(1, moist[my * N + mx] + 0.12);
         }
     }
 
-    /* ---- biomes (after rivers moistened the banks) ---- */
+    /* ---- biomes ---- */
     const biome = new Uint8Array(N * N);
     const code = name => BIOME_CODES.indexOf(name);
     for (let i = 0; i < N * N; i++) {
-        if (height[i] <= sea) { biome[i] = code('ocean'); continue; }
+        if (isOcean[i]) { biome[i] = code('ocean'); continue; }
+        if (lakeMask[i]) { biome[i] = code('lake'); continue; }
         const h = hNorm(i), m = moist[i];
         if (h > 0.8) biome[i] = code('snow');
         else if (h > 0.6) biome[i] = code('mountains');
@@ -108,30 +68,11 @@ export function generateRegion(seed, params = {}) {
         else if (m < 0.75) biome[i] = code('forest');
         else biome[i] = (h < 0.12) ? code('swamp') : code('rainforest');
     }
-    // water not connected to the border = lakes
-    {
-        const seen = new Uint8Array(N * N);
-        const q = [];
-        for (let x = 0; x < N; x++) { q.push(x, (N - 1) * N + x); }
-        for (let y = 0; y < N; y++) { q.push(y * N, y * N + N - 1); }
-        for (const i of q) if (biome[i] === code('ocean')) seen[i] = 1;
-        for (let qi = 0; qi < q.length; qi++) {
-            const i = q[qi];
-            if (!seen[i]) continue;
-            const x = i % N, y = (i / N) | 0;
-            for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
-                if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
-                const ni = ny * N + nx;
-                if (biome[ni] === code('ocean') && !seen[ni]) { seen[ni] = 1; q.push(ni); }
-            }
-        }
-        for (let i = 0; i < N * N; i++) if (biome[i] === code('ocean') && !seen[i]) biome[i] = code('lake');
-    }
 
     /* ---- settlements by suitability scoring ---- */
     const nameRng = new Rng(`${seed}/names`);
     const riverCells = new Set();
-    for (const r of rivers) for (const [x, y] of r.pts) riverCells.add(((y | 0) * N + (x | 0)));
+    for (let i = 0; i < N * N; i++) if (isRiver[i]) riverCells.add(i);
     const nearRiver = (x, y, d) => {
         for (let dy = -d; dy <= d; dy++) for (let dx = -d; dx <= d; dx++) {
             if (riverCells.has((y + dy) * N + (x + dx))) return true;
@@ -270,7 +211,14 @@ export function generateRegion(seed, params = {}) {
     }));
     rivers.forEach((r, i) => model.entities.push({
         id: 'rv' + (i + 1), kind: 'river', pts: r.pts,
-        tags: r.toSea ? ['to-sea'] : [],
+        tags: r.tags.map(t =>
+            t.startsWith('to-lake:') ? 'to-lake:lk' + t.slice(8)
+                : t.startsWith('tributary:') ? 'tributary:rv' + (Number(t.slice(10)) + 1)
+                    : t),
+    }));
+    lakes.forEach(l => model.entities.push({
+        id: 'lk' + l.id, kind: 'lake', name: null,
+        x: Math.round(l.x), y: Math.round(l.y), w: l.cells, tags: [],
     }));
     blobs.forEach((b, i) => model.entities.push({
         id: 'b' + (i + 1), kind: 'biome', purpose: b.biome, name: b.name,
