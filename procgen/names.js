@@ -30,6 +30,8 @@ export function word(rng, { midChance = 0.45, end = null } = {}) {
 const DUNGEON_SUFFIX = ['Halls', 'Depths', 'Catacombs', 'Barrow', 'Warrens', 'Vaults', 'Undercroft', 'Tombs'];
 const DUNGEON_OF = ['Sorrow', 'the Drowned King', 'Whispers', 'the Pale Flame', 'Broken Chains', 'the Last Vigil', 'the Silent Choir', 'Rust and Ash'];
 const REGION_SUFFIX = ['March', 'Reach', 'Wilds', 'Coast', 'Vale', 'Expanse', 'Lowlands', 'Frontier'];
+const WORLD_SUFFIX = ['Realms', 'World', 'Spheres', 'Lands Entire', 'Circle'];
+const WORLD_END = ['ia', 'os', 'ara', 'eth', 'ion', 'ador'];
 const TAVERN_ADJ = ['Drowned', 'Gilded', 'Prancing', 'Rusty', 'Laughing', 'Salty', 'Crooked', 'Sleeping', 'Thirsty', 'Wandering'];
 const TAVERN_NOUN = ['Rat', 'Goblet', 'Pony', 'Anchor', 'Kraken', 'Lantern', 'Griffin', 'Barrel', 'Crow', 'Boar'];
 
@@ -45,6 +47,10 @@ export function nameFor(rng, kind) {
                 : `${word(rng)} ${rng.pick(DUNGEON_SUFFIX)}`;
         case 'region':
             return `The ${word(rng)} ${rng.pick(REGION_SUFFIX)}`;
+        case 'world':
+            return rng.chance(0.4)
+                ? `The ${word(rng)} ${rng.pick(WORLD_SUFFIX)}`
+                : word(rng, { midChance: 0.6, end: WORLD_END });
         case 'village':
             return word(rng, { end: VILLAGE_END });
         case 'city':

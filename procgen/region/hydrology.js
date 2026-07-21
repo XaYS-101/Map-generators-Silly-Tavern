@@ -179,7 +179,7 @@ export function buildHydrology(ctx) {
     }
 
     /* ---- (e) rivers: threshold + downstream tracing ---- */
-    const T = riverThreshold(p.rivers);
+    const T = ctx.T ?? riverThreshold(p.rivers);   // world maps pass a higher T
     const isRiver = new Uint8Array(M);
     for (let i = 0; i < M; i++) {
         if (!isOcean[i] && !lakeMask[i] && acc[i] >= T) isRiver[i] = 1;
