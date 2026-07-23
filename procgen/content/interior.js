@@ -197,9 +197,10 @@ export function populateInterior(rooms, ctx, rng) {
         // ---- secret cache (typed only; describe surfaces it) ----
         if (r.id === secretId) c.secret = '[hidden] ' + P('[secret]');
 
-        // ---- flatten: furniture + dressing + trace only ----
+        // ---- flatten: furniture + dressing + trace (+ pre-drawn lore echo:
+        // a plain string set by the lore pass — zero draws on this stream) ----
         r.content = c;
-        r.notes = [...c.furniture, ...c.dressing, ...(trace ? [trace] : [])].join('; ');
+        r.notes = [...c.furniture, ...c.dressing, ...(trace ? [trace] : []), ...(r.loreEcho ? [r.loreEcho] : [])].join('; ');
     }
 
     // ---- keys: one line into each keyRoom's content (typed only) ----

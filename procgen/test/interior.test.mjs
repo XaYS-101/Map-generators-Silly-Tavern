@@ -26,8 +26,11 @@ test('same seed + params → identical model and prose', () => {
 });
 
 test('condition changes content, never geometry', () => {
+    // occupants + life/lore layers are content — they may come and go with
+    // condition; rooms/doors/windows/stairs must not move
+    const CONTENT_KINDS = new Set(['occupant', 'event', 'rumor', 'menu', 'lore']);
     const strip = m => JSON.stringify(m.entities
-        .filter(e => e.kind !== 'occupant')
+        .filter(e => !CONTENT_KINDS.has(e.kind))
         .map(({ notes, content, name, ...rest }) => rest));
     for (const building of KINDS) {
         const a = generateInterior('i1', { building, condition: 'lived-in' });
@@ -121,6 +124,78 @@ test('locked doors have reachable keys (no softlock)', () => {
     assert.ok(found > 0, 'at least one seed produced a locked door');
 });
 
+test('life layers appear only in lived-in buildings and reference real entities', () => {
+    for (const seed of ['i1', 'i2', 'hearth']) {
+        for (const building of KINDS) {
+            for (const condition of ['abandoned', 'looted']) {
+                const m = generateInterior(seed, { building, condition });
+                assert.equal(m.entities.filter(e => e.kind === 'occupant' && e.tags?.includes('visitor')).length, 0,
+                    `${seed}/${building}/${condition}: no visitors`);
+                assert.equal(m.entities.filter(e => e.kind === 'event' || e.kind === 'rumor').length, 0,
+                    `${seed}/${building}/${condition}: no events/rumors`);
+                const menu = m.entities.find(e => e.kind === 'menu');
+                if (menu) assert.ok(menu.tags?.includes('relic'), `${seed}/${building}/${condition}: menu only as a relic`);
+            }
+            const m = generateInterior(seed, { building });
+            const roomIds = new Set(m.entities.filter(e => e.kind === 'room').map(e => e.id));
+            const ids = new Set(m.entities.map(e => e.id));
+            for (const v of m.entities.filter(e => e.kind === 'occupant' && e.tags?.includes('visitor')))
+                assert.ok(roomIds.has(v.room), `${seed}/${building}: ${v.id} sits in a real room`);
+            const ev = m.entities.find(e => e.kind === 'event');
+            if (ev) assert.ok(roomIds.has(ev.room), `${seed}/${building}: event in a real room`);
+            for (const ru of m.entities.filter(e => e.kind === 'rumor'))
+                assert.ok(ids.has(ru.carrier), `${seed}/${building}: ${ru.id} carrier exists`);
+        }
+    }
+});
+
+test('menu: lived-in taverns and caravanserais always serve; nobody else does', () => {
+    for (const seed of ['i1', 'i2', 'i3', 'hearth']) {
+        for (const building of KINDS) {
+            const m = generateInterior(seed, { building });
+            const menu = m.entities.find(e => e.kind === 'menu');
+            if (building === 'tavern' || building === 'caravanserai') {
+                assert.ok(menu?.house?.brew && menu?.house?.dish, `${seed}/${building}: menu with house brew and dish`);
+                assert.ok(menu.food?.length && menu.drink?.length, `${seed}/${building}: food and drink lines`);
+            } else {
+                assert.equal(menu, undefined, `${seed}/${building}: no menu`);
+            }
+        }
+    }
+});
+
+test('lore is well-formed and distinct from the hook', () => {
+    let fired = 0;
+    for (let i = 0; i < 20; i++) {
+        const m = generateInterior('l' + i, { building: 'tavern', condition: 'abandoned' });
+        const lore = m.entities.find(e => e.kind === 'lore');
+        if (!lore) continue;
+        fired++;
+        assert.ok(['full', 'partial'].includes(lore.completeness), 'completeness never "none" when emitted');
+        assert.ok(lore.text?.length > 10, 'lore has text');
+        const hook = m.entities.find(e => e.kind === 'room' && e.content?.hook)?.content.hook;
+        if (hook) assert.ok(!lore.text.includes(hook), 'lore never contains the hook');
+    }
+    assert.ok(fired >= 10, `abandoned lore fires often (${fired}/20)`);
+});
+
+test('presence layers roll probabilistically across seeds', () => {
+    let vis = 0, evs = 0, rus = 0, lores = 0;
+    const N = 50;
+    for (let i = 0; i < N; i++) {
+        const m = generateInterior('p' + i, { building: 'tavern' });
+        if (m.entities.some(e => e.kind === 'occupant' && e.tags?.includes('visitor'))) vis++;
+        if (m.entities.some(e => e.kind === 'event')) evs++;
+        if (m.entities.some(e => e.kind === 'rumor')) rus++;
+        if (m.entities.some(e => e.kind === 'lore')) lores++;
+    }
+    // wide tolerances — asserts "sometimes but not always", not exact rates
+    assert.ok(vis > N * 0.7, `visitors ${vis}/${N}`);
+    assert.ok(evs > N * 0.3 && evs < N * 0.9, `events ${evs}/${N}`);
+    assert.ok(rus > N * 0.45 && rus < N * 0.95, `rumors ${rus}/${N}`);
+    assert.ok(lores > N * 0.35 && lores < N * 0.85, `lore ${lores}/${N}`);
+});
+
 test('geometry, name and household never move (pinned at v1.10.0, frozen forever)', () => {
     // The layout / names / occupants streams are a compatibility contract:
     // new content layers may only ADD entities on their own streams. These
@@ -162,12 +237,12 @@ test('model snapshots (update deliberately on generator changes)', () => {
             got[`${seed}/${tag}`] = hashSeed(JSON.stringify(rest))[0];
         }
     }
-    // pinned against the v1.10.0 pipeline; on a deliberate generator change,
+    // pinned against the v1.12.0 pipeline; on a deliberate generator change,
     // print `got` and update these values in the same commit
     assert.deepEqual(got, {
-        'i1/tavern': 2454117200,
-        'i1/spec': 917380064,
-        'hearth/tavern': 431030198,
-        'hearth/spec': 2971489470,
+        'i1/tavern': 3295422918,
+        'i1/spec': 1879441810,
+        'hearth/tavern': 1700801296,
+        'hearth/spec': 3591373177,
     });
 });
