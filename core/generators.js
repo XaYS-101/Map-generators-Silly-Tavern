@@ -67,8 +67,9 @@ export const GENERATORS = {
         key: 'ldungeon', label: 'Dungeon (local)', embed: 'local', base: '',
         seedable: true, params: [],
         paramSchema: [
-            { k: 'size', type: 'select', opts: ['s', 'm', 'l'], def: 'm', i18n: 'p_size' },
+            { k: 'size', type: 'select', opts: ['s', 'm', 'l', 'den', 'huge'], def: 'm', i18n: 'p_size' },
             { k: 'theme', type: 'select', opts: ['crypt', 'ruins', 'stronghold', 'sewer', 'caves'], def: 'crypt', i18n: 'p_theme' },
+            { k: 'depth', type: 'select', opts: ['1', '2', '3'], def: '1', i18n: 'p_depth' },
             { k: 'density', type: 'range', min: 0, max: 1, step: 0.1, def: 0.5, i18n: 'p_density' },
             { k: 'danger', type: 'select', opts: ['safe', 'low', 'medium', 'deadly'], def: 'medium', i18n: 'p_danger' },
             { k: 'secrets', type: 'bool', def: true, i18n: 'p_secrets' },
@@ -78,7 +79,7 @@ export const GENERATORS = {
                 // clickable chips so users don't have to memorize the vocabulary;
                 // groups are mutually exclusive (picking one clears its siblings)
                 chips: ['undead', 'bandits', 'beasts', 'vermin', 'haunted', 'treasure', 'deadly', 'empty',
-                    'den', 'small', 'large', 'huge', 'loops', 'linear'],
+                    'den', 'small', 'large', 'huge', 'loops', 'linear', 'deep', 'boss'],
                 chipExclusive: [['den', 'small', 'large', 'huge'], ['loops', 'linear']],
             },
         ],

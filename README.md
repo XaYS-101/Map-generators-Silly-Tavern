@@ -159,6 +159,20 @@ code. Please credit Watabou and consider supporting the tools on
 - Deleting a map or disabling its memory only *disables* its lorebook entry
   (never deletes it), so nothing is lost by accident.
 
+## Changed in 1.11.0
+
+- **Dungeons overhauled again.** Dungeons can now descend up to three levels
+  (new **Depth** param, or the `deep` tag) — each level down is darker and
+  deadlier, stairs link the floors, and the bottom may break through into
+  natural caves. Dungeons are inhabited *sometimes*: a named boss in a lair
+  ("Norshaw the Hollow, a necromancer, laired in The Depths"), rival factions
+  holding territories with war, truce or siege between them, prisoners with
+  their own wants — none of it guaranteed, every seed rolls its own. Places
+  now carry a history (who built it, how it fell, what rules it now — full,
+  fragmentary or lost), traps show a telltale sign for observant players, and
+  vaults hold itemized hoards. The `den`/`huge` sizes joined the size select.
+  Existing seeds keep their exact top-level layout; deeper levels extend it.
+
 ## Changed in 1.10.0
 
 - **Building interiors overhauled.** Eleven building types (adding smithy,
