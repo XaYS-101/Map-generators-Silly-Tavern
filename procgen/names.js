@@ -534,3 +534,74 @@ export const RESIDENT_TRAITS = {
         'kind to strangers, wary of neighbors', 'always seems to know what you came to ask',
     ],
 };
+
+/* ------------------------------------------------------------------
+ *  Dungeon inhabitants layer: boss names/traits, faction names, and
+ *  prisoner wants. APPENDED — every table and helper above is untouched,
+ *  so the region/world/town/interior snapshots keep producing identical
+ *  output (their streams never draw the symbols below). Consumed by
+ *  dungeon/inhabitants.js from its own seeded sub-streams.
+ * ------------------------------------------------------------------ */
+
+const BOSS_EPITHET = ['the Unrisen', 'the Deathless', 'the Pale', 'the Gaunt',
+    'the Hollow', 'the Bloodless', 'the Unmourned', 'the Sunless', 'the Riven',
+    'the Wormwood', 'the Nameless', 'the Coiled', 'the Everwaking', 'the Devourer'];
+
+/** Boss name: a word-name plus an epithet, e.g. "Vargul the Unrisen".
+ *  `kind` is accepted for future kind-specific flavor; unused for now so
+ *  the same word/epithet draws hold across kinds. */
+export function bossName(rng, kind) {
+    const base = word(rng, { midChance: 0.3 });
+    return `${base} ${rng.pick(BOSS_EPITHET)}`;
+}
+
+/** Short evocative boss traits — one clause each; inhabitants.js picks
+ *  one with the boss sub-stream (mirrors RESIDENT_TRAITS.default style). */
+export const BOSS_TRAITS = [
+    'has ruled this dark longer than any name recalls',
+    'suffers no rival to draw breath in its halls',
+    'hoards more than gold — grudges, chiefly',
+    'was sealed here once, and has never forgiven it',
+    'keeps the lesser dead as a shabby court',
+    'bargains, but never in the supplicant\'s favour',
+    'grows bolder the deeper you press',
+    'remembers every soul that fled these halls',
+    'waited so long the waiting became a kind of worship',
+    'answers to a hunger older than the stone',
+];
+
+/** Pre-authored faction names (the strings ARE the names). */
+export const FACTION_NAMES = [
+    'the Ashen Hand', 'the Pale Chorus', 'the Broken Wheel', 'the Gilded Maggots',
+    'the Sunken Court', 'the Red Vigil', 'the Hollow Crown', 'the Gravewardens',
+    'the Last Lantern', 'the Iron Tithe', 'the Whispering Few', 'the Rusted Fangs',
+    'the Pallid Choir', 'the Deep Wardens', 'the Thorn Covenant',
+];
+
+const FACTION_ADJ = ['Ashen', 'Pale', 'Broken', 'Gilded', 'Sunken', 'Red', 'Hollow',
+    'Iron', 'Rusted', 'Pallid', 'Silent', 'Grave', 'Bleak', 'Thorn'];
+const FACTION_NOUN = ['Hand', 'Chorus', 'Wheel', 'Court', 'Vigil', 'Crown', 'Tithe',
+    'Fangs', 'Choir', 'Wardens', 'Lantern', 'Coil', 'Banner', 'Host'];
+
+/** Faction name: a pre-authored name, or a generated "the <Adj> <Noun>"
+ *  variant. Pass a Set as `used` to guarantee uniqueness within one
+ *  dungeon (falls through to generation once the fixed pool is spent). */
+export function factionName(rng, used = null) {
+    let name = rng.chance(0.7) ? rng.pick(FACTION_NAMES) : `the ${rng.pick(FACTION_ADJ)} ${rng.pick(FACTION_NOUN)}`;
+    if (used) {
+        for (let guard = 0; guard < 12 && used.has(name); guard++) {
+            name = `the ${rng.pick(FACTION_ADJ)} ${rng.pick(FACTION_NOUN)}`;
+        }
+        used.add(name);
+    }
+    return name;
+}
+
+/** One-line prisoner wants — the hook they offer a rescuer. */
+export const PRISONER_WANTS = [
+    'begs to be freed', 'offers a map of the deeper halls for rescue',
+    'will pay in secrets, if you cut the bindings', 'swears they know a hidden way down',
+    'clutches a key they will trade for freedom', 'raves of the thing that guards the deep',
+    'pleads for water before anything else', 'offers a name that opens a locked door',
+    'claims a hidden cache, and will lead you to it', 'wants only to be carried out alive',
+];

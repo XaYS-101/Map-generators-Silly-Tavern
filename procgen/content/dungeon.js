@@ -101,6 +101,43 @@ export const TABLES = {
         ...tag(['caves'], ['pale fungus glows faintly in the seams of the rock', 'water drips in an endless, patient rhythm', 'crystals catch and scatter what little light there is', 'the walls run slick with cold condensation', 'old pick-marks scar one wall, the diggers long gone']),
         ...tag(['any'], ['old bloodstains, long since dried to brown', 'a cold draft breathes from somewhere unseen', 'deep gouges score the far wall', 'a scatter of clean-picked bones in one corner', 'the silence here has a waiting quality']),
     ],
+
+    /* -------- trap telltale: the tell a careful eye can catch -------- */
+    trap_telltale: [
+        ...tag(['crypt'], ['grave-dust lies disturbed in a telling arc', 'a censer-chain is strung a touch too taut across the aisle']),
+        ...tag(['stronghold'], ['a murder-hole gapes in the ceiling just ahead', 'the flagstones ring hollow under a careful boot']),
+        ...tag(['sewer'], ['a sluice-lever sits primed and freshly greased', 'the waterline hides a cord strung below the scum']),
+        ...tag(['caves'], ['loose scree is swept clear in one suspicious lane', 'a boulder sits balanced a shade too neatly']),
+        ...tag(['any'], [
+            'fine dust outlines a seam in the floor', 'a hair-thin wire glints at ankle height',
+            'one flagstone sits a finger proud of its neighbours', 'oil-black scorch-marks fan from a wall vent',
+            'a faint click-plate shows under a scuff of grit', 'old bones lie crushed just past the threshold',
+        ]),
+    ],
+
+    /* -------- hoard (three-part high-tier haul) -------- */
+    hoard_coin: [
+        ...tag(['crypt'], ['grave-goods of old gold coin heaped high', 'silver funeral-offerings gone black with age']),
+        ...tag(['stronghold'], ['a paychest of mixed minting, still locked', 'ingots of dull war-silver stacked like bricks']),
+        ...tag(['any'], ['a spill of old gold coin', 'chests of tarnished silver and cut coin', 'a burst sack of coin trodden into the dust', 'stacked ingots gone dull with the years']),
+    ],
+    hoard_object: [
+        ...tag(['crypt'], ['a jewelled crown on a mouldered cushion', 'a reliquary of gold and blackened bone']),
+        ...tag(['stronghold'], ['ceremonial armour that bears neither dust nor rust', 'a banner-spear chased in silver wire']),
+        ...tag(['any'], ['a sword whose edge has never dulled', 'a circlet set with a stone like a frozen eye', 'a sceptre wound with tarnished silver', 'a coffer of cut gemstones']),
+    ],
+    hoard_oddity: [
+        ...tag(['crypt'], ['a single tooth the size of a fist', 'a ledger of debts owed by the long dead']),
+        ...tag(['sewer'], ['a map of tunnels that no longer exist', 'a jar of something pale that turns to follow you']),
+        ...tag(['any'], ['a sealed jar that hums when neared', 'a map inked on cured skin', "a child's toy, incongruous and untouched", 'a phial of something that glows like trapped daylight']),
+    ],
+
+    /* -------- border trace: the ecology of two rival holdings -------- */
+    border_trace: tag(['any'], [
+        'arrows stud the door frame', 'a scorched truce-flag lies trampled here',
+        'scratched tally-marks of two rival bands cover the wall', 'a chalk line splits the floor, defended from both sides',
+        'spent torches ring a cold, contested brazier', 'dried blood pools on the threshold between holdings',
+    ]),
 };
 
 /* Purpose-specific dressing — plain strings, picked directly (not via
@@ -128,6 +165,15 @@ const HOOK_PATTERNS = [
     "a dying scrawl, barely legible: 'it hears you in the dark — go quietly'",
 ];
 
+/* Faction dressing — one line names the holding (%F% → faction name). */
+const FACTION_DRESS = [
+    'crude banners of %F% hang from the rafters',
+    "the sigil of %F% is daubed here in soot",
+    'territory-marks of %F% ring the doorway',
+    'a muster-notice bearing the mark of %F% peels from the wall',
+    'scratched into the lintel: the sign of %F%',
+];
+
 const DANGER = { safe: 0, low: 1, medium: 2, deadly: 3 };
 /* user creature-tags → which theme's mob/solo tables to draw from */
 const CREATURE_TAG = { undead: 'crypt', haunted: 'crypt', bandits: 'stronghold', guards: 'stronghold', beasts: 'caves', vermin: 'sewer' };
@@ -148,6 +194,21 @@ export function populateDungeon(rooms, ctx, rng) {
     const encMul = empty ? 0.4 : (tags.has('deadly') ? 1.3 : 1);
     const P = tpl => expand(tpl, rng, TABLES);
 
+    /* ---- new (optional) ctx from the inhabitants/story passes ----
+     * `enriched` gates the two content changes that fire on plain
+     * legacy geometry (trap→object, vault hoard); the per-room flags
+     * (r.lair/r.faction/r.borderTrace/r.storyEcho) gate the rest. Every
+     * enrichment draw is taken from a per-room rng.sub() stream, so the
+     * MAIN content stream is consumed byte-for-byte as before — a legacy
+     * caller (no new ctx fields, no new room flags) is unaffected. */
+    const inhab = ctx.inhabitants || null;
+    const globalNum = typeof ctx.globalNum === 'function' ? ctx.globalNum : null;
+    const enriched = ctx.inhabitants != null || ctx.story != null;
+    const vaultSet = new Set(['treasury', 'hidden vault', 'vault']);
+    const gid = r => (globalNum ? globalNum(r.i) : r.i);
+    const sub = (label, r) => rng.sub(`${label}:${gid(r)}`);        // independent enrichment stream
+    const num = i => (globalNum ? globalNum(i) : i + 1);            // room reference number (global-aware)
+
     for (const r of rooms) {
         const c = {};
         const isEntrance = r.i === entranceI;
@@ -162,6 +223,14 @@ export function populateDungeon(rooms, ctx, rng) {
         if (pflav && rng.chance(0.6)) dress.push(rng.pick(pflav));
         else if (rng.chance(0.4)) dress.push(P('[dressing#any]'));
         c.dressing = [...new Set(dress.filter(Boolean))];
+
+        // ---- dressing enrichment (sub-streams only; main stream untouched) ----
+        if (r.faction != null && inhab?.factions) {
+            const fac = inhab.factions.find(f => f.id === r.faction);
+            if (fac) c.dressing.push(sub('facdress', r).pick(FACTION_DRESS).replace(/%F%/g, fac.name));
+        }
+        if (r.borderTrace) c.dressing.push(expand('[border_trace]', sub('border', r), TABLES));
+        if (r.storyEcho) c.dressing.push(r.storyEcho);
 
         // ---- encounter ----
         let enc = null;
@@ -181,6 +250,13 @@ export function populateDungeon(rooms, ctx, rng) {
         }
         if (enc) c.encounter = enc;
 
+        // ---- lair: the boss encounter replaces the normal roll ----
+        if (r.lair && inhab?.boss) {
+            const xr = sub('lair', r);
+            const tail = xr.pick(['broods over its hoard', 'awaits challengers', 'stirs at the sound of footsteps']);
+            c.encounter = `${inhab.boss.name}, ${xr.pick(['a', 'the'])} ${inhab.boss.purpose || inhab.boss.kind}, ${tail}`;
+        }
+
         // ---- treasure ----
         let tier = null;
         if (isSecret) tier = 'high';
@@ -192,13 +268,35 @@ export function populateDungeon(rooms, ctx, rng) {
         else if (richer && rng.chance(0.3)) tier = 'mid';
         if (tier) c.treasure = P(`[treasure_${tier}]`);
 
+        // ---- hoard: a boss lair, or a high-tier vault under the new pass,
+        //      upgrades treasure to a three-part haul (sub-stream) ----
+        if (r.lair || (enriched && vaultSet.has(r.purpose) && tier === 'high')) {
+            c.treasure = expand(`[hoard_coin#${theme}]; [hoard_object#${theme}]; [hoard_oddity#${theme}]`, sub('hoard', r), TABLES);
+        }
+
         // ---- trap ----
+        // Gate on the LEGACY tier, not c.treasure: the lair hoard above may
+        // set c.treasure where the legacy stream left it empty, and gating on
+        // it would consume an extra main-stream draw and desync every later
+        // room's content for pre-1.11 seeds (stream-compat contract).
         let trap = false;
         if (isSecret && dN > 0) trap = true;
-        else if (c.treasure && rng.chance(0.2 + 0.15 * dN)) trap = true;
+        else if (tier && rng.chance(0.2 + 0.15 * dN)) trap = true;
         else if (deadEnd && rng.chance(0.1 * dN)) trap = true;
         else if (tags.has('deadly') && rng.chance(0.2)) trap = true;
-        if (trap && !isEntrance) c.trap = P('[trap_trigger] is rigged so that [trap_effect]');
+        if (trap && !isEntrance) {
+            // Same two main-stream draws as the legacy single-expand call
+            // (trigger then effect); the literal text between them draws
+            // nothing, so the stream stays aligned whichever form we build.
+            const trigger = P('[trap_trigger]');
+            const effect = P('[trap_effect]');
+            if (enriched) {
+                const telltale = expand(`[trap_telltale#${theme}]`, sub('trap', r), TABLES);
+                c.trap = { trigger, effect, telltale };
+            } else {
+                c.trap = `${trigger} is rigged so that ${effect}`;
+            }
+        }
 
         // ---- hazard ----
         if (r.flooded) {
@@ -217,8 +315,8 @@ export function populateDungeon(rooms, ctx, rng) {
         if (kr?.content) {
             const tpl = rng.pick(KEY_PATTERNS)
                 .replace(/%K%/g, ctx.lock.kindWord)
-                .replace(/%A%/g, String(ctx.lock.a + 1))
-                .replace(/%B%/g, String(ctx.lock.b + 1));
+                .replace(/%A%/g, String(num(ctx.lock.a)))
+                .replace(/%B%/g, String(num(ctx.lock.b)));
             kr.content.key = expand(tpl, rng, TABLES);
         }
     }
@@ -226,9 +324,9 @@ export function populateDungeon(rooms, ctx, rng) {
     // ---- hooks: 1-2 narrative clues threaded through the level ----
     const nHooks = empty ? 1 : (dN >= 2 ? 2 : 1);
     const cand = rooms.filter(r => r.i !== entranceI && r.i !== exitI && r.i !== secretI);
-    const targetNum = (secretI >= 0 ? secretI : (exitI >= 0 ? exitI : 0)) + 1;
+    const targetIdx = secretI >= 0 ? secretI : (exitI >= 0 ? exitI : 0);
     for (const r of rng.shuffle(cand).slice(0, Math.min(nHooks, cand.length))) {
-        const tpl = rng.pick(HOOK_PATTERNS).replace('%N%', String(targetNum));
+        const tpl = rng.pick(HOOK_PATTERNS).replace('%N%', String(num(targetIdx)));
         r.content.hook = expand(tpl, rng, TABLES);
     }
 }
