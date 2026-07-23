@@ -159,6 +159,22 @@ code. Please credit Watabou and consider supporting the tools on
 - Deleting a map or disabling its memory only *disables* its lorebook entry
   (never deletes it), so nothing is lost by accident.
 
+## Changed in 1.12.0
+
+- **Interiors came alive.** Lived-in buildings now have visitors suited to the
+  place — patrons nursing ales and a bard passing the hat in a tavern,
+  worshippers and footsore pilgrims in a temple, hagglers in a shop, drovers
+  and merchant lodgers in a caravanserai — plus, sometimes, a scene already in
+  progress (a dice game gone too quiet, a funeral arriving, a caravan
+  mustering). Taverns and caravanserais serve a menu: a named house brew
+  ("the Widow's Ruin"), a signature dish and priced fare scaling with wealth.
+  Patrons and keepers carry rumors worth chasing, and every building may have
+  a history — who raised it, what passed through it, what holds it now —
+  told in full, in fragments, or lost entirely, with physical traces echoed
+  into the rooms. Abandoned places explain themselves more often than not.
+  None of it is guaranteed: every seed rolls its own life. Existing seeds
+  keep their exact geometry, name and household.
+
 ## Changed in 1.11.0
 
 - **Dungeons overhauled again.** Dungeons can now descend up to three levels
