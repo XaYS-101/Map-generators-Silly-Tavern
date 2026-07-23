@@ -17,8 +17,33 @@ function canvasDims(model) {
     const { w, h } = model.size;
     switch (model.type) {
         case 'dungeon': {
-            const ts = 16, m = 40;
-            return { w: w * ts + m * 2, h: h * ts + m * 2 + 24, view: { s: ts, ox: m, oy: m + 24 } };
+            const m = 40, gap = 24;
+            const floors = (model.layers?.floors?.length)
+                ? [...model.layers.floors].sort((a, b) => a.level - b.level)
+                : null;
+            // legacy or single-floor: EXACT current dims (no visual change)
+            if (!floors || floors.length <= 1) {
+                const ts = 16;
+                const fw = floors ? (floors[0].w || w) : w;
+                const fh = floors ? (floors[0].h || h) : h;
+                const view = { s: ts, ox: m, oy: m + 24 };
+                if (floors) view.floorOrigins = [{ level: floors[0].level, ox: m, oy: m + 24 }];
+                return { w: fw * ts + m * 2, h: fh * ts + m * 2 + 24, view };
+            }
+            // multi-floor: side by side, like interior
+            let ts = 16;
+            const totalUnits = floors.reduce((a, f) => a + (f.w || w), 0);
+            let width = m * 2 + totalUnits * ts + gap * (floors.length - 1);
+            if (width > 1600) { ts = 12; width = m * 2 + totalUnits * ts + gap * (floors.length - 1); }
+            const maxH = Math.max(...floors.map(f => f.h || h));
+            const oyTop = m + 24;
+            const floorOrigins = [];
+            let cursor = m;
+            for (const f of floors) {
+                floorOrigins.push({ level: f.level, ox: cursor, oy: oyTop });
+                cursor += (f.w || w) * ts + gap;
+            }
+            return { w: width, h: maxH * ts + m * 2 + 24, view: { s: ts, ox: m, oy: oyTop, floorOrigins } };
         }
         case 'interior': {
             // multi-floor plans render side by side; legacy single-floor

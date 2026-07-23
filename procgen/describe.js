@@ -29,12 +29,31 @@ export function describe(model) {
 
 const idNum = id => id.replace(/^\D+/, '');
 
+/** Display name of a dungeon level ('Upper Level', 'The Depths', 'Level 2'). */
+function lvlName(model, level) {
+    const f = model.layers?.floors?.find(fl => fl.level === level);
+    return f?.label || `Level ${(level ?? 0) + 1}`;
+}
+/** Same, lowercased for mid-sentence use ('the depths', 'the upper level'). */
+function lvlPhrase(model, level) {
+    const n = lvlName(model, level);
+    if (n === 'Upper Level') return 'the upper level';
+    if (n === 'The Depths') return 'the depths';
+    return n;
+}
+
 function exitsOf(model, id) {
     const secretWord = model.params?.theme === 'caves' ? 'concealed passage' : 'secret door';
     return model.edges
         .filter(e => e.a === id || e.b === id)
         .map(e => {
             const other = e.a === id ? e.b : e.a;
+            if (e.kind === 'stair') {
+                // multi-level link: "stairs down→r14 (The Depths)"
+                const dir = e.a === id ? (e.dir || 'down') : (STAIR_OPP[e.dir] || 'up');
+                const o = model.entities.find(x => x.id === other);
+                return `stairs ${dir}→r${idNum(other)} (${lvlName(model, o?.level ?? 0)})`;
+            }
             const dir = e.a === id ? e.dir : oppositeDir(e.dir);
             const kind = e.kind === 'secret' ? secretWord : e.kind;
             return `${dir}→${idNum(other)} (${kind}${e.locked ? ', locked' : ''})`;
@@ -51,17 +70,41 @@ function placeDir(model, x, y) {
 /* ------------------------------------------------------------------
  *  Dungeon
  * ------------------------------------------------------------------ */
+/* Floors of a dungeon; legacy single-level models (layers.grid, no
+ * floors array) are synthesized into one Level 1 so they keep working. */
+function dungeonFloors(model) {
+    if (model.layers?.floors?.length) return [...model.layers.floors];
+    return [{ level: 0, label: 'Level 1', grid: model.layers?.grid, w: model.size?.w, h: model.size?.h }];
+}
+
+const DUNGEON_SHAPE_WORD = { round: 'round', octagon: 'octagonal', cross: 'cross-shaped', columned: 'columned' };
+
+/* Trap content may be an object {trigger,effect,telltale} (new content
+ * agent) or a legacy string. Both render into one prose segment. */
+function trapSegment(trap) {
+    if (!trap) return null;
+    if (typeof trap === 'string') return 'trap: ' + trap;
+    return `trap: ${trap.trigger} rigged so that ${trap.effect} (telltale: ${trap.telltale})`;
+}
+
 function describeDungeon(model) {
     const rooms = model.entities
         .filter(e => e.kind === 'room')
         .sort((a, b) => Number(idNum(a.id)) - Number(idNum(b.id)));
     const entrance = rooms.find(r => r.tags?.includes('entrance'));
-    const exit = rooms.find(r => r.tags?.includes('exit'));
+    // "deepest chamber" = the exit-tagged room on the LOWEST level (each
+    // level's far room keeps its legacy 'exit' tag)
+    const exit = rooms.filter(r => r.tags?.includes('exit'))
+        .sort((a, b) => (b.level ?? 0) - (a.level ?? 0) || Number(idNum(b.id)) - Number(idNum(a.id)))[0];
     const theme = model.params.theme || 'crypt';
+    const floors = dungeonFloors(model);
+    const multi = floors.length > 1;
+    const roomLvl = id => (rooms.find(r => r.id === id)?.level ?? 0);
 
     const lines = [];
-    lines.push(`== ${model.name} (dungeon, seed "${model.seed}", ${rooms.length} rooms) ==`);
-    let ov = `Overview: A ${theme === 'caves' ? 'natural cave system' : `${theme} complex`} of ${rooms.length} chambers on one level.`;
+    lines.push(`== ${model.name} (dungeon, seed "${model.seed}", ${rooms.length} rooms${multi ? ` across ${floors.length} levels` : ''}) ==`);
+    const base = `Overview: A ${theme === 'caves' ? 'natural cave system' : `${theme} complex`} of ${rooms.length} chambers`;
+    let ov = base + (multi ? `, descending ${floors.length} levels — each level down is darker and deadlier.` : ' on one level.');
     if (entrance) ov += ` The entrance (Room ${idNum(entrance.id)}) lies to the ${placeDir(model, entrance.x + entrance.w / 2, entrance.y + entrance.h / 2)}`;
     if (exit) ov += `; the deepest chamber (Room ${idNum(exit.id)}, ${exit.name}) lies to the ${placeDir(model, exit.x + exit.w / 2, exit.y + exit.h / 2)}`;
     ov += '.';
@@ -72,44 +115,124 @@ function describeDungeon(model) {
         deadly: 'This is a deadly place — expect guarded halls and lethal traps.',
     };
     ov += ' ' + (DANGER_TONE[model.params.danger] || DANGER_TONE.medium);
-    const lockedE = model.edges.find(e => e.locked);
-    if (lockedE) {
-        ov += ` A locked ${lockedE.kind === 'gate' ? 'gate' : 'door'} between rooms ${idNum(lockedE.a)} and ${idNum(lockedE.b)} bars the way; its key is hidden in one of the chambers.`;
+    if (multi) {
+        const seen = new Set();
+        for (const e of model.edges) {
+            if (!e.locked) continue;
+            const lvl = roomLvl(e.a);
+            if (seen.has(lvl)) continue;
+            seen.add(lvl);
+            ov += ` A locked ${e.kind === 'gate' ? 'gate' : 'door'} bars the way on ${lvlPhrase(model, lvl)}.`;
+        }
+    } else {
+        const lockedE = model.edges.find(e => e.locked);
+        if (lockedE) {
+            ov += ` A locked ${lockedE.kind === 'gate' ? 'gate' : 'door'} between rooms ${idNum(lockedE.a)} and ${idNum(lockedE.b)} bars the way; its key is hidden in one of the chambers.`;
+        }
     }
     lines.push(ov);
+
+    // 3) History (only when a lore entity is present)
+    const lore = model.entities.find(e => e.kind === 'lore');
+    if (lore) {
+        // lore.text is the properly framed sentence(s); raw fragments only
+        // as a fallback for partial records without a composed text
+        const text = lore.text || [lore.builder, lore.fall, lore.now].filter(Boolean).join(' ');
+        if (text) lines.push('', 'History: ' + text);
+    }
+
+    // 4) Inhabitants (bosses, factions, prisoners)
+    const factions = model.entities.filter(e => e.kind === 'faction');
+    const occupants = model.entities.filter(e => e.kind === 'occupant');
+    const bosses = occupants.filter(o => o.tags?.includes('boss'));
+    const prisoners = occupants.filter(o => !o.tags?.includes('boss'));
+    if (bosses.length || factions.length || prisoners.length) {
+        lines.push('', 'Inhabitants:');
+        for (const b of bosses) {
+            const where = b.room
+                ? `laired in room ${idNum(b.room)} (${lvlName(model, b.level ?? 0)})`
+                : `laired in ${lvlPhrase(model, b.level ?? 0)}`;
+            lines.push(`- ${b.name}, ${indefArticle(b.purpose)} ${b.purpose}, ${where}${b.notes ? ` — ${b.notes}` : ''}.`);
+        }
+        for (const fac of factions) {
+            let line = `- ${fac.name} (${fac.purpose}) hold ${fac.rooms?.length || 0} chambers`;
+            if (fac.tags?.includes('war')) {
+                const other = factions.find(x => x !== fac);
+                line += `; at war with ${other?.name || 'a rival'}`;
+            } else if (fac.tags?.includes('truce')) {
+                line += '; under an uneasy truce';
+            } else if (fac.tags?.includes('siege')) {
+                line += '; laying siege';
+            }
+            lines.push(line + '.');
+        }
+        for (const p of prisoners) {
+            const where = p.room ? `in room ${idNum(p.room)}` : `on Level ${(p.level ?? 0) + 1}`;
+            lines.push(`- ${p.name}, ${p.purpose} ${where}${p.notes ? ` — ${p.notes}` : ''}.`);
+        }
+    }
+
     lines.push('', 'Rooms:');
 
-    const MAX = 16;
-    let main = rooms, rest = [];
-    if (rooms.length > MAX) {
-        // key/hook rooms must reach the AI even on huge maps
-        const score = r => (r.tags?.length ? 100 : 0)
-            + (r.content?.key ? 50 : 0) + (r.content?.hook ? 15 : 0)
-            + exitsOf(model, r.id).length * 5 + r.w * r.h * 0.1;
-        const ranked = [...rooms].sort((a, b) => score(b) - score(a));
-        const keep = new Set(ranked.slice(0, MAX).map(r => r.id));
-        main = rooms.filter(r => keep.has(r.id));
-        rest = rooms.filter(r => !keep.has(r.id));
-    }
-    const SHAPE_WORD = { round: 'round', octagon: 'octagonal', cross: 'cross-shaped', columned: 'columned' };
-    for (const r of main) {
+    // Shared room-line renderer (identical prose for single- and multi-level).
+    const roomLine = (r) => {
         const exits = exitsOf(model, r.id);
         const tags = (r.tags || []).filter(t => t !== 'secret');
         const tagTxt = tags.length ? ` [${tags.join(', ')}]` : '';
-        const shapeTxt = SHAPE_WORD[r.shape] ? ', ' + SHAPE_WORD[r.shape] : '';
+        const shapeTxt = DUNGEON_SHAPE_WORD[r.shape] ? ', ' + DUNGEON_SHAPE_WORD[r.shape] : '';
         const c = r.content || {};
         const segs = [];
         if (r.notes) segs.push(r.notes);           // dressing + hazard + flags
         if (c.encounter) segs.push('foe: ' + c.encounter);
         if (c.treasure) segs.push('loot: ' + c.treasure);
-        if (c.trap) segs.push('trap: ' + c.trap);
+        const trapSeg = trapSegment(c.trap);
+        if (trapSeg) segs.push(trapSeg);
         if (c.key) segs.push('key: ' + c.key);
         if (c.hook) segs.push('clue: ' + c.hook);
         const body = segs.length ? ' — ' + segs.join('; ') : '';
-        lines.push(`${idNum(r.id)}. ${r.name} (${r.w}x${r.h}${shapeTxt})${tagTxt}${body}. Exits: ${exits.join(', ') || 'none'}.`);
-    }
-    if (rest.length) {
-        lines.push(`…plus ${rest.length} minor chambers (${rest.map(r => `${idNum(r.id)}: ${r.purpose}`).join(', ')}).`);
+        return `${idNum(r.id)}. ${r.name} (${r.w}x${r.h}${shapeTxt})${tagTxt}${body}. Exits: ${exits.join(', ') || 'none'}.`;
+    };
+
+    if (multi) {
+        // group by level, per-level cap 12 with a stairs/lair-aware ranking
+        const score = r => (r.tags?.length ? 100 : 0)
+            + (r.content?.key ? 50 : 0) + (r.content?.hook ? 15 : 0)
+            + (r.tags?.includes('stairs') ? 50 : 0) + (r.tags?.includes('lair') ? 50 : 0)
+            + exitsOf(model, r.id).length * 5 + r.w * r.h * 0.1;
+        const ordered = [...floors].sort((a, b) => a.level - b.level);
+        for (const f of ordered) {
+            const fr = rooms.filter(r => (r.level ?? 0) === f.level);
+            if (!fr.length) continue;
+            let mainR = fr, rest = [];
+            if (fr.length > 12) {
+                const ranked = [...fr].sort((a, b) => score(b) - score(a));
+                const keep = new Set(ranked.slice(0, 12).map(r => r.id));
+                mainR = fr.filter(r => keep.has(r.id));
+                rest = fr.filter(r => !keep.has(r.id));
+            }
+            lines.push('', `${f.label || 'Level ' + (f.level + 1)}:`);
+            for (const r of mainR) lines.push(roomLine(r));
+            if (rest.length) {
+                lines.push(`…plus ${rest.length} minor chambers (${rest.map(r => `${idNum(r.id)}: ${r.purpose}`).join(', ')}).`);
+            }
+        }
+    } else {
+        const MAX = 16;
+        let main = rooms, rest = [];
+        if (rooms.length > MAX) {
+            // key/hook rooms must reach the AI even on huge maps
+            const score = r => (r.tags?.length ? 100 : 0)
+                + (r.content?.key ? 50 : 0) + (r.content?.hook ? 15 : 0)
+                + exitsOf(model, r.id).length * 5 + r.w * r.h * 0.1;
+            const ranked = [...rooms].sort((a, b) => score(b) - score(a));
+            const keep = new Set(ranked.slice(0, MAX).map(r => r.id));
+            main = rooms.filter(r => keep.has(r.id));
+            rest = rooms.filter(r => !keep.has(r.id));
+        }
+        for (const r of main) lines.push(roomLine(r));
+        if (rest.length) {
+            lines.push(`…plus ${rest.length} minor chambers (${rest.map(r => `${idNum(r.id)}: ${r.purpose}`).join(', ')}).`);
+        }
     }
 
     return { prose: lines.join('\n'), ascii: gridAscii(model), json: compactJson(model) };
@@ -128,12 +251,29 @@ function gridAscii(model) {
         }
         return blocks.length ? blocks.join('\n\n') : null;
     }
+    if (model.type === 'dungeon' && model.layers?.floors?.length) {
+        const floors = [...model.layers.floors].sort((a, b) => a.level - b.level);
+        const allRooms = model.entities.filter(e => e.kind === 'room');
+        const roomsOn = lvl => allRooms.filter(r => (r.level ?? 0) === lvl);
+        if (floors.length === 1) {
+            // single-floor dungeon model → no caption (byte-identical layout)
+            return gridAsciiOne(model, floors[0].grid, false, roomsOn(floors[0].level));
+        }
+        const blocks = [];
+        for (const f of floors) {
+            const block = gridAsciiOne(model, f.grid, false, roomsOn(f.level));
+            if (block) blocks.push(`[${f.label}]\n${block}`);
+        }
+        return blocks.length ? blocks.join('\n\n') : null;
+    }
     if (!model.layers?.grid) return null;
     return gridAsciiOne(model, model.layers.grid, !!model.layers.cellGrid);
 }
 
-/** Render one grid (RLE) to an ASCII block + legend. */
-function gridAsciiOne(model, gridRle, isCellGrid) {
+/** Render one grid (RLE) to an ASCII block + legend.
+ *  `rooms` overrides the id-label overlay set (defaults to all rooms —
+ *  keeps legacy dungeon output byte-identical). */
+function gridAsciiOne(model, gridRle, isCellGrid, rooms) {
     if (!gridRle) return null;
     let rows = rleDecode(gridRle).map(r => r.split(''));
     if (!rows.length || !rows[0].length) return null;
@@ -145,8 +285,8 @@ function gridAsciiOne(model, gridRle, isCellGrid) {
         // interior grids already store the room letter in every cell
         legend = `legend: each char = 1 m of that room's floor (a=room 1, b=room 2…), # = outside${wide ? ' (compressed 2:1 horizontally)' : ''}`;
     } else {
-        const rooms = model.entities.filter(e => e.kind === 'room');
-        rooms.forEach((r) => {
+        const roomList = rooms || model.entities.filter(e => e.kind === 'room');
+        roomList.forEach((r) => {
             const label = (Number(idNum(r.id))).toString(36).toUpperCase();
             let cx = Math.floor(r.x + r.w / 2);
             const cy = Math.floor(r.y + r.h / 2);
@@ -154,7 +294,13 @@ function gridAsciiOne(model, gridRle, isCellGrid) {
             const row = rows[cy];
             if (!row) return;
             if (row[cx] === '<' || row[cx] === '>') cx += (row[cx + 1] && row[cx + 1] !== '#') ? 1 : -1;
-            if (row[cx] && row[cx] !== '#') row[cx] = label;
+            // multi-char labels (global ids ≥ 37 → two base36 chars on deep
+            // levels) span consecutive CELLS so row width never changes
+            for (let li = 0; li < label.length; li++) {
+                const cell = row[cx + li];
+                if (cell && cell !== '#') row[cx + li] = label[li];
+                else break;   // don't punch labels into walls
+            }
         });
         legend = `legend: # wall, . floor, ~ water, + door, < entrance, > exit; room ids 1-9 then A=10, B=11…${wide ? ' (map compressed 2:1 horizontally)' : ''}`;
     }

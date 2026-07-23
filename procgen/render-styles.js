@@ -147,15 +147,44 @@ function simplifyLoop(pts) {
 }
 
 export function drawDungeon(ctx, model, rng, h, view) {
-    const { s, ox, oy } = view;
+    // Floors: new models carry layers.floors; legacy single-floor models
+    // (layers.grid, no floors array) synthesize one Level 1 so they render
+    // byte-identically to before.
+    const floors = (model.layers?.floors?.length)
+        ? [...model.layers.floors].sort((a, b) => a.level - b.level)
+        : [{ level: 0, label: 'Level 1', grid: model.layers?.grid, w: model.size?.w, h: model.size?.h }];
+    const origins = (view.floorOrigins && view.floorOrigins.length)
+        ? view.floorOrigins
+        : [{ level: floors[0].level, ox: view.ox, oy: view.oy }];
+    const originFor = lvl => origins.find(o => o.level === lvl) || origins[0] || { ox: view.ox, oy: view.oy };
+    const multi = floors.length > 1;
+    const factions = model.entities.filter(e => e.kind === 'faction');
+    for (const f of floors) {
+        const o = originFor(f.level);
+        drawDungeonFloor(ctx, model, rng, h, view.s, o.ox, o.oy, f, multi, factions);
+    }
+}
+
+/** Paint one dungeon floor (grid + walls + doors + labels + icons). */
+function drawDungeonFloor(ctx, model, rng, h, s, ox, oy, floor, multi, factions) {
     const px = (x, y) => [ox + x * s, oy + y * s];
-    const rows = rleDecode(model.layers.grid);
+    const lvl = floor.level ?? 0;
+    const lvlOf = e => (e.level ?? 0);
+    const roomLvl = new Map(model.entities.filter(e => e.kind === 'room').map(r => [r.id, r.level ?? 0]));
+    const rows = rleDecode(floor.grid);
+    if (!rows.length || !rows[0].length) return;
     const W = rows[0].length, H = rows.length;
     const at = (x, y) => (rows[y]?.[x]) ?? '#';
     const isFloor = c => FLOOR_CHARS.has(c);
     const wallAt = (x, y) => !isFloor(at(x, y));
     const floorColor = DUNGEON_FLOOR[model.params.theme] || DUNGEON_FLOOR.crypt;
     const style = THEME_STYLE[model.params.theme] || THEME_STYLE.crypt;
+
+    // per-floor caption (only when more than one floor is drawn)
+    if (multi) {
+        h.label(floor.label || `Level ${lvl + 1}`, ox + (W * s) / 2, oy - 8,
+            { size: 13, italic: false, weight: '600' });
+    }
 
     // wall loops traced once: polygon floor fill + smoothed wall ink both
     // come from them, so diagonals stay perfectly aligned
@@ -172,6 +201,24 @@ export function drawDungeon(ctx, model, rng, h, view) {
         ctx.closePath();
     }
     ctx.fill();
+
+    // faction territory tint: exactly 2 factions → two hues over their
+    // rooms' floor cells (rust vs slate). Skip when 0-1 factions.
+    if (factions.length === 2) {
+        const hues = ['rgba(150,70,40,0.08)', 'rgba(70,90,110,0.08)'];
+        factions.forEach((fac, fi) => {
+            ctx.fillStyle = hues[fi];
+            for (const rid of (fac.rooms || [])) {
+                const r = model.entities.find(e => e.id === rid && e.kind === 'room');
+                if (!r || (r.level ?? 0) !== lvl) continue;
+                for (let y = r.y; y < r.y + r.h; y++) {
+                    for (let x = r.x; x < r.x + r.w; x++) {
+                        if (isFloor(at(x, y))) ctx.fillRect(ox + x * s, oy + y * s, s, s);
+                    }
+                }
+            }
+        });
+    }
 
     // subtle tile variation specks
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -219,9 +266,12 @@ export function drawDungeon(ctx, model, rng, h, view) {
         h.inkPoly(loop.map(([vx, vy]) => px(vx, vy)), { width: 2.2, wobble: style.wallWobble });
     }
 
-    // secret / locked door cells (Phase 3 tracks the door cell on the edge)
+    // secret / locked door cells (Phase 3 tracks the door cell on the edge).
+    // Only this floor's edges — stair edges cross levels and carry no door.
     const secretAt = new Set(), lockedAt = new Set();
     for (const e of model.edges || []) {
+        if (e.kind === 'stair') continue;
+        if ((roomLvl.get(e.a) ?? 0) !== lvl) continue;
         for (const cell of [e.at, e.at2]) {
             if (!cell) continue;
             const k = cell[0] + ',' + cell[1];
@@ -308,8 +358,10 @@ export function drawDungeon(ctx, model, rng, h, view) {
         ctx.globalAlpha = 1;
     }
 
+    const frooms = model.entities.filter(e => e.kind === 'room' && lvlOf(e) === lvl);
+
     // room numbers (base36, matches the prose/ascii ids)
-    for (const r of model.entities.filter(e => e.kind === 'room')) {
+    for (const r of frooms) {
         const lbl = idNum(r.id).toString(36).toUpperCase();
         const [cx, cy] = px(r.x + r.w / 2, r.y + r.h / 2);
         h.label(lbl, cx, cy + s * 0.22, { size: Math.max(11, s * 0.62), italic: false, weight: '600' });
@@ -317,13 +369,14 @@ export function drawDungeon(ctx, model, rng, h, view) {
 
     // content micro-icons under the room number (cosmetic, params.icons)
     if (model.params.icons !== false) {
-        for (const r of model.entities.filter(e => e.kind === 'room')) {
+        for (const r of frooms) {
             const c = r.content || {};
             const glyphs = [];
             if (c.encounter) glyphs.push('mob');
             if (c.treasure) glyphs.push('loot');
             if (c.trap) glyphs.push('trap');
             if (c.key) glyphs.push('key');
+            if (r.tags?.includes('lair')) glyphs.push('skull');   // boss lair marker
             if (!glyphs.length) continue;
             const [cx, cy] = px(r.x + r.w / 2, r.y + r.h / 2);
             const gy = cy + s * 0.62;
@@ -376,6 +429,24 @@ function drawContentIcon(ctx, kind, gx, gy, s, ink) {
         ctx.lineTo(gx + r, gy);
         ctx.moveTo(gx + r * 0.6, gy);
         ctx.lineTo(gx + r * 0.6, gy + r * 0.5);
+        ctx.stroke();
+    } else if (kind === 'skull') {
+        // tiny skull: cranium outline + two eye dots + 3 teeth ticks
+        const cy = gy - r * 0.1;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(gx, cy, r * 0.7, 0, Math.PI * 2);          // cranium
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(gx - r * 0.28, cy - r * 0.05, r * 0.15, 0, Math.PI * 2);   // eyes
+        ctx.arc(gx + r * 0.28, cy - r * 0.05, r * 0.15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        for (let i = -1; i <= 1; i++) {                    // teeth
+            const tx = gx + i * r * 0.26;
+            ctx.moveTo(tx, cy + r * 0.5);
+            ctx.lineTo(tx, cy + r * 0.82);
+        }
         ctx.stroke();
     }
 }
