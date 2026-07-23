@@ -121,6 +121,36 @@ test('locked doors have reachable keys (no softlock)', () => {
     assert.ok(found > 0, 'at least one seed produced a locked door');
 });
 
+test('geometry, name and household never move (pinned at v1.10.0, frozen forever)', () => {
+    // The layout / names / occupants streams are a compatibility contract:
+    // new content layers may only ADD entities on their own streams. These
+    // hashes must never be re-pinned.
+    const got = {};
+    for (const seed of SEEDS) {
+        for (const [tag, p] of [
+            ['tavern', { building: 'tavern' }],
+            ['spec', { building: 'caravanserai', size: 'large', wealth: 'wealthy', condition: 'abandoned' }],
+        ]) {
+            const m = generateInterior(seed, p);
+            const core = {
+                name: m.name,
+                formerOwner: m.layers.formerOwner ?? null,
+                geometry: m.entities
+                    .filter(e => ['room', 'door', 'window', 'stair'].includes(e.kind))
+                    .map(({ notes, content, ...rest }) => rest),
+                household: m.entities.filter(e => e.kind === 'occupant' && e.id.startsWith('oc')),
+            };
+            got[`${seed}/${tag}`] = hashSeed(JSON.stringify(core))[0];
+        }
+    }
+    assert.deepEqual(got, {
+        'i1/tavern': 1019548048,
+        'i1/spec': 2238954092,
+        'hearth/tavern': 1341333581,
+        'hearth/spec': 3604732529,
+    });
+});
+
 test('model snapshots (update deliberately on generator changes)', () => {
     const got = {};
     for (const seed of SEEDS) {
