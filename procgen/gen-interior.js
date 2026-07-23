@@ -2,9 +2,10 @@
  *  Building-interior generator — orchestrator (1 cell = 1 m, DOM-free).
  *
  *  Pipeline: buildFloors (cellar/ground/upper geometry + purposes +
- *  stairs) → wire doors per floor → windows → locks → populate content
- *  → occupants → building name → assemble. Eleven kinds across six
- *  skeleton families (see interior/layout.js).
+ *  stairs) → wire doors per floor → windows → locks → occupants → life
+ *  (visitors/event/menu/rumors) → lore → populate content → building
+ *  name → assemble. Eleven kinds across six skeleton families (see
+ *  interior/layout.js).
  *
  *  Stream discipline (rng.js): the LAYOUT stream keys on kind/size/
  *  wealth ONLY — never `condition` — so state never rebuilds geometry.
@@ -27,6 +28,13 @@ import { wireFloor } from './interior/doors.js';
 import { word, nameFor, CARAVANSERAI_ADJ } from './names.js';
 import { populateInterior } from './content/interior.js';
 import { assignOccupants } from './interior/occupants.js';
+
+/* Life (visitors/event/menu/rumors) + lore live in sibling modules owned
+ * by other agents; import defensively so the generator stays valid while
+ * they land. Both own independent seed streams. */
+let assignLife = null, buildLore = null;
+try { assignLife = (await import('./interior/life.js')).assignLife ?? null; } catch { /* not landed yet */ }
+try { buildLore = (await import('./interior/lore.js')).buildLore ?? null; } catch { /* not landed yet */ }
 
 export function generateInterior(seed, params = {}) {
     const p = { building: 'tavern', size: 'medium', wealth: 'average', condition: 'lived-in', ...params };
@@ -60,14 +68,6 @@ export function generateInterior(seed, params = {}) {
     // ---- locks + key rooms ----
     const keyRooms = applyLocks(floors, roomsAll, stairs, allDoors, allDoorEdges, stairEdges, layoutRng.sub('locks'));
 
-    // ---- content (other agent; defensive) ----
-    const entranceId = ground.hub.id;
-    const stairRoomIds = roomsAll.filter(r => r.tags.includes('stairs')).map(r => r.id);
-    try {
-        populateInterior(roomsAll, { kind, wealth: p.wealth, condition: p.condition, entranceId, keyRooms, stairRoomIds }, contentRng);
-    } catch { /* leave notes/content empty on partial integration */ }
-    for (const r of roomsAll) { if (r.content == null) r.content = {}; if (r.notes == null) r.notes = ''; }
-
     // ---- occupants (other agent; defensive) ----
     // Real occupants.js returns { occupants, formerOwner } and owns its own
     // seed stream — the owner is condition-stable, occupants are lived-in only.
@@ -78,10 +78,30 @@ export function generateInterior(seed, params = {}) {
         formerOwner = res.formerOwner || null;
     } catch { occupants = []; }
 
+    // ---- life: visitors / event / menu / rumors (own stream; defensive) ----
+    const entranceId = ground.hub.id;
+    let lifeEntities = [];
+    try {
+        if (assignLife) lifeEntities = assignLife(roomsAll, { kind, size: p.size, wealth: p.wealth, condition: p.condition, seed, entranceId, occupants })?.entities || [];
+    } catch (err) { console.error('[MapGenerators] interior life failed', err); lifeEntities = []; }
+
+    // ---- lore: building history (own stream; sets r.loreEcho; defensive) ----
+    let loreEntities = [];
+    try {
+        if (buildLore) loreEntities = buildLore(roomsAll, { kind, condition: p.condition, wealth: p.wealth, seed, formerOwner, entranceId })?.entities || [];
+    } catch (err) { console.error('[MapGenerators] interior lore failed', err); loreEntities = []; }
+
+    // ---- content (other agent; defensive) — after lore so loreEcho flattens ----
+    const stairRoomIds = roomsAll.filter(r => r.tags.includes('stairs')).map(r => r.id);
+    try {
+        populateInterior(roomsAll, { kind, wealth: p.wealth, condition: p.condition, entranceId, keyRooms, stairRoomIds }, contentRng);
+    } catch { /* leave notes/content empty on partial integration */ }
+    for (const r of roomsAll) { if (r.content == null) r.content = {}; if (r.notes == null) r.notes = ''; }
+
     // ---- name (drawn last) ----
     model.name = buildingName(kind, nameRng);
 
-    return assemble(model, { W, H, floors, roomsAll, allDoors, allDoorEdges, allWindows, stairs, stairEdges, occupants, formerOwner });
+    return assemble(model, { W, H, floors, roomsAll, allDoors, allDoorEdges, allWindows, stairs, stairEdges, occupants, formerOwner, lifeEntities, loreEntities });
 }
 
 /* Windows on exterior walls (cosmetic). Layout stream → independent of
@@ -176,7 +196,7 @@ function floorGrid(floor) {
 }
 
 function assemble(model, ctx) {
-    const { W, H, floors, roomsAll, allDoors, allDoorEdges, allWindows, stairs, stairEdges, occupants, formerOwner } = ctx;
+    const { W, H, floors, roomsAll, allDoors, allDoorEdges, allWindows, stairs, stairEdges, occupants, formerOwner, lifeEntities = [], loreEntities = [] } = ctx;
     model.size = { w: W, h: H, unit: 'm' };
 
     // entities: rooms → doors → windows → stairs → occupants
@@ -196,6 +216,8 @@ function assemble(model, ctx) {
     allWindows.forEach((w, i) => model.entities.push({ id: 'wi' + (i + 1), kind: 'window', level: w.level, x: w.x, y: w.y, tags: [w.orient] }));
     for (const s of stairs) model.entities.push({ id: s.id, kind: 'stair', level: s.level, to: s.to, x: s.x, y: s.y, room: s.room });
     for (const o of occupants) model.entities.push(o);
+    for (const e of lifeEntities) model.entities.push(e);
+    for (const e of loreEntities) model.entities.push(e);
 
     // edges: door (+locked) + street + stairs
     model.edges = [];

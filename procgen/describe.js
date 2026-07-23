@@ -351,6 +351,14 @@ function describeInterior(model) {
     const condition = model.params.condition;
     const floors = interiorFloors(model);
 
+    // life/lore entities (v1.12+; absent on legacy models — all sections gate on presence)
+    const loreEnt = model.entities.find(e => e.kind === 'lore');
+    const eventEnt = model.entities.find(e => e.kind === 'event');
+    const menuEnt = model.entities.find(e => e.kind === 'menu');
+    const rumors = model.entities.filter(e => e.kind === 'rumor');
+    const visitors = model.entities.filter(e => e.kind === 'occupant' && e.tags?.includes('visitor'));
+    const lifeRooms = new Set([eventEnt?.room, menuEnt?.room].filter(Boolean));
+
     const lines = [];
     // 1) Header
     lines.push(`== ${model.name} (${kind} floor plan, seed "${model.seed}", ${rooms.length} rooms) ==`);
@@ -374,8 +382,12 @@ function describeInterior(model) {
     }
     lines.push(ov);
 
-    // 3) People
-    const occupants = model.entities.filter(e => e.kind === 'occupant');
+    // 2b) History (lore = the long past; the hook at the end stays the
+    // immediate mystery — the two registers never overlap)
+    if (loreEnt?.text) lines.push('', `History: ${loreEnt.text}`);
+
+    // 3) People (household only — visitors get their own section)
+    const occupants = model.entities.filter(e => e.kind === 'occupant' && !e.tags?.includes('visitor'));
     if (occupants.length) {
         const owner = occupants[0];
         let line = `People: kept by ${owner.name} the ${owner.purpose}`;
@@ -392,6 +404,40 @@ function describeInterior(model) {
     } else if (model.layers?.formerOwner || model.formerOwner) {
         const fo = model.layers?.formerOwner || model.formerOwner;
         lines.push('', `Once kept by ${fo.name} the ${fo.role}; no one lives here now.`);
+    }
+
+    // 3b) Visitors — transient faces, one clause each
+    if (visitors.length) {
+        const parts = visitors.map(v => {
+            const who = v.name ? `${v.name} the ${v.purpose}` : `${indefArticle(v.purpose)} ${v.purpose}`;
+            return v.notes ? `${who} — ${v.notes}` : who;
+        });
+        lines.push('', `Also here: ${parts.join('; ')}.`);
+    }
+
+    // 3c) Event in progress
+    if (eventEnt?.notes) {
+        const evRoom = rooms.find(r => r.id === eventEnt.room);
+        lines.push('', `Happening now: ${eventEnt.notes}${evRoom ? ` (room ${idNum(evRoom.id)}, ${evRoom.name})` : ''}.`);
+    }
+
+    // 3d) Fare (tavern/caravanserai menu; relic slate for empty houses)
+    if (menuEnt) {
+        if (menuEnt.tags?.includes('relic')) {
+            lines.push('', `Fare: ${menuEnt.notes}.`);
+        } else {
+            const head = [];
+            if (menuEnt.house?.brew) head.push(`the house pours "${menuEnt.house.brew}"`);
+            if (menuEnt.house?.dish) head.push(`the kitchen's pride is ${menuEnt.house.dish}`);
+            const priced = [...(menuEnt.food || []), ...(menuEnt.drink || [])]
+                .filter(it => it.t !== menuEnt.house?.dish && it.t !== menuEnt.house?.brew)
+                .slice(0, 4)
+                .map(it => (it.price ? `${it.t} (${it.price})` : it.t));
+            let line = `Fare: ${head.join('; ')}.`;
+            if (priced.length) line += ` Also on the slate: ${priced.join(', ')}.`;
+            if (menuEnt.notes) line += ` ${capital(menuEnt.notes)}.`;
+            lines.push('', line);
+        }
     }
 
     // 4/5) Rooms grouped by floor (display order), each floor capped at 12
@@ -426,7 +472,8 @@ function describeInterior(model) {
         return line;
     };
     const isSpecial = (r) => r.tags?.includes('entrance') || r.tags?.includes('stairs')
-        || (r.content && (r.content.key || r.content.secret || r.content.hook));
+        || (r.content && (r.content.key || r.content.secret || r.content.hook))
+        || lifeRooms.has(r.id);
     const score = (r) => {
         let sc = r.w * r.h * 0.1;
         if (r.tags?.includes('entrance')) sc += 100;
@@ -434,6 +481,7 @@ function describeInterior(model) {
         if (r.content?.key) sc += 60;
         if (r.content?.secret) sc += 50;
         if (r.content?.hook) sc += 40;
+        if (lifeRooms.has(r.id)) sc += 30;
         return sc;
     };
 
@@ -452,6 +500,17 @@ function describeInterior(model) {
         lines.push('', `${f.label || 'Floor'}:`);
         for (const r of main) lines.push(roomLine(r));
         if (rest.length) lines.push(`…plus ${rest.length} more room${rest.length > 1 ? 's' : ''}.`);
+    }
+
+    // 5b) Rumors — attributed to whoever carries them
+    if (rumors.length) {
+        const carrierLabel = (id) => {
+            const c = model.entities.find(e => e.id === id);
+            if (!c) return 'someone here';
+            return c.name || `${indefArticle(c.purpose)} ${c.purpose}`;
+        };
+        lines.push('', 'Rumors:');
+        for (const ru of rumors) lines.push(`- ${capital(carrierLabel(ru.carrier))}: ${ru.notes}.`);
     }
 
     // 6) Hook line last
